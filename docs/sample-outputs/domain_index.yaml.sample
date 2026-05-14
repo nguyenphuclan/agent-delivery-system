@@ -1,0 +1,67 @@
+# Sample domain_index.yaml — output of scan-init's domain phase
+# Lives at: {project_docs}/domain/domain_index.yaml
+# Maps business concepts to where they're implemented in code + db.
+# do-ticket and domain-problem-solver use this for requirement → entity mapping.
+
+schema_version: 1
+project: myapp
+produced_at: 2026-05-13T09:14:22Z
+
+# ─── Bounded contexts ────────────────────────────────────────────────────
+contexts:
+
+  task_management:
+    description: "Lifecycle of work tasks: creation, assignment, state transitions, completion."
+    primary_repo: myapp-api-task
+    related_repos: [myapp-shared, myapp-frontend]
+
+    aggregates:
+      Task:
+        entity_path: myapp-shared/src/Models/Task/Task.cs
+        db_table: public.task
+        state_machine: myapp-shared/src/Models/Task/TaskStateMachine.cs
+        invariants:
+          - "AssignedContractor must be active when state=IN_PROGRESS"
+          - "CompletedAt may not be null when state=COMPLETED"
+        related_tickets: [TICKET-9876, TICKET-10231]
+
+      TaskAssignment:
+        entity_path: myapp-shared/src/Models/Task/TaskAssignment.cs
+        db_table: public.task_assignment
+        invariants:
+          - "Only one active assignment per task"
+
+  contractor_directory:
+    description: "Contractors, licenses, skills, availability."
+    primary_repo: myapp-api-portal
+    related_repos: [myapp-shared]
+
+    aggregates:
+      Contractor:
+        entity_path: myapp-shared/src/Models/Contractor/Contractor.cs
+        db_table: public.contractor
+        invariants:
+          - "License expiry must be in the future when state=ACTIVE"
+
+# ─── Cross-context flows ─────────────────────────────────────────────────
+flows:
+
+  task_assigned_to_contractor:
+    description: "User assigns a task to a contractor via the portal."
+    touches:
+      - context: task_management
+        aggregate: Task
+      - context: contractor_directory
+        aggregate: Contractor
+    entry_points:
+      - myapp-api-task/Controllers/TaskController.cs:AssignTask
+      - myapp-frontend/src/app/task/assign-dialog.component.ts
+    invariants_to_check:
+      - "Contractor.state == ACTIVE"
+      - "Task.state in [NEW, ON_HOLD]"
+
+# ─── Glossary (canonical terms) ──────────────────────────────────────────
+glossary:
+  Task: "A unit of work that flows through a state machine from NEW to COMPLETED."
+  Contractor: "An external party who performs Tasks. Must hold a valid license."
+  Assignment: "A binding between a Task and a Contractor. At most one active per Task."

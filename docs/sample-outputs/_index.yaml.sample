@@ -1,0 +1,71 @@
+# Sample _index.yaml — output of scan-init
+# Lives at: {project_docs}/_index.yaml
+# Every artifact the agent produces is registered here. Skills resolve paths via this file.
+
+schema_version: 1
+project: myapp
+last_full_scan: 2026-05-13T09:14:22Z
+
+# ─── Phase readiness gates ───────────────────────────────────────────────
+# Each phase flips to `ready` only when its inputs are present and fresh.
+# do-ticket / domain-problem-solver consult this map before advancing.
+phase_readiness:
+  scan_complete:        ready
+  domain_index_built:   ready
+  ticket_context_built: not_started     # set by do-ticket per-ticket
+  plan_built:           not_started
+  implementation_done:  not_started
+  tests_passing:        not_started
+  pr_ready:             not_started
+
+# ─── Artifact registry ───────────────────────────────────────────────────
+artifacts:
+
+  domain_index:
+    path: domain/domain_index.yaml
+    produced_by: scan-init
+    produced_at: 2026-05-13T09:14:22Z
+    source_hash: sha256:8e2b...
+    phase: domain_index_built
+
+  code_index:
+    path: code/_index.yaml
+    produced_by: scan-init
+    produced_at: 2026-05-13T09:11:08Z
+    source_hash: sha256:4d7a...
+    repos_covered:
+      - myapp-shared
+      - myapp-api-task
+      - myapp-api-portal
+      - myapp-identity-provider
+      - myapp-frontend
+
+  db_index:
+    path: db/_index.yaml
+    produced_by: scan-init
+    produced_at: 2026-05-13T09:13:55Z
+    source_hash: sha256:c19f...
+    schemas_covered: [public]
+
+  conventions_index:
+    path: conventions/_index.md
+    produced_by: scan-init
+    produced_at: 2026-05-13T09:14:01Z
+
+  build_index:
+    path: build/_index.yaml
+    produced_by: scan-init
+    produced_at: 2026-05-13T09:14:08Z
+
+# ─── Ticket folders (populated by do-ticket) ─────────────────────────────
+tickets:
+  # TICKET-1234:
+  #   path: tickets/TICKET-1234/
+  #   status: in_progress
+  #   current_phase: implement
+  #   artifacts:
+  #     - requirements.md
+  #     - requirements-analysis.md
+  #     - test-cases.md
+  #     - plan.md
+  #     - implement-summary.md

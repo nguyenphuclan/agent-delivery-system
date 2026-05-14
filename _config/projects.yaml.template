@@ -1,0 +1,90 @@
+# projects.yaml — agent project config
+#
+# Copy this file to projects.yaml and fill in your project's values.
+# Multiple project blocks are allowed; set `active: true` on exactly ONE.
+#
+# projects.yaml is gitignored — your credentials and absolute paths never leave your machine.
+
+projects:
+
+  myapp:
+    active: true
+
+    # ─── Identity ─────────────────────────────────────────────────────────
+    name: myapp                          # short slug, used in artifact paths
+    description: "Short human description of what this project is"
+
+    # ─── Output ───────────────────────────────────────────────────────────
+    # Where the agent writes all artifacts (_index.yaml, domain index, ticket folders).
+    # Must be writable. Must be OUTSIDE the source repos.
+    output_dir: C:\path\to\your\agent-output\myapp
+
+    # ─── Source repos ─────────────────────────────────────────────────────
+    # Map a logical role to the absolute path of each local clone.
+    # Role names are referenced by skills, e.g. shared_lib must be scanned FIRST.
+    repos:
+      shared_lib:
+        path: C:\repos\myapp-shared
+        primary_language: csharp
+      api_task:
+        path: C:\repos\myapp-api-task
+        primary_language: csharp
+      api_portal:
+        path: C:\repos\myapp-api-portal
+        primary_language: csharp
+      identity:
+        path: C:\repos\myapp-identity-provider
+        primary_language: csharp
+      frontend:
+        path: C:\repos\myapp-frontend
+        primary_language: typescript
+
+    # ─── Branch convention ────────────────────────────────────────────────
+    branch:
+      feature_prefix: ""                 # "" for bare ticket IDs; "feat/" or "feature/" otherwise
+      hotfix_prefix: "hotfix/"
+      main_branch: main
+
+    # ─── Ticket system ────────────────────────────────────────────────────
+    ticket_system:
+      type: jira                         # jira | linear | github
+      prefix: TICKET                     # e.g. "TICKET" for TICKET-1234
+      url: https://yourorg.atlassian.net # base URL
+      # Auth is read from environment / MCP — do not put tokens in this file.
+
+    # ─── Database (optional — enables db/ index in scan-init) ─────────────
+    db:
+      type: postgres                     # postgres | sqlserver | mysql | sqlite
+      # Use environment variable references; do not paste raw credentials.
+      connection_string: ${MYAPP_DB_CONNSTR}
+      # Schemas the agent should index. Empty list = all non-system schemas.
+      schemas: [public]
+
+    # ─── Build / CI (optional) ────────────────────────────────────────────
+    build:
+      api_task:
+        build_cmd: "dotnet build"
+        test_cmd: "dotnet test"
+      frontend:
+        build_cmd: "npm run build"
+        test_cmd: "npm test"
+        output_dir: "dist/"
+
+    # ─── Deploy (optional) ────────────────────────────────────────────────
+    deploy:
+      strategy: helm                     # helm | docker-compose | k8s-manifest | none
+      helm_repo: myapp-infra-helm        # only if strategy=helm
+      environments: [test, acc, prod]
+
+    # ─── Observability (optional) ─────────────────────────────────────────
+    observability:
+      grafana_repo: myapp-grafana-dashboards
+      log_aggregator: ""                 # e.g. "https://logs.example.com"
+
+  # ─── Additional projects ─────────────────────────────────────────────────
+  # Add more `<project>:` blocks here. Only ONE may have `active: true`.
+  #
+  # secondapp:
+  #   active: false
+  #   name: secondapp
+  #   ...

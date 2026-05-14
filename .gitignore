@@ -1,0 +1,15 @@
+# User project config — contains real paths/creds, never commit
+_config/projects.yaml
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
+
+# Agent runtime / outputs (in case anyone runs the agent inside the repo)
+.claude/
+observations.md
+*-workspace/

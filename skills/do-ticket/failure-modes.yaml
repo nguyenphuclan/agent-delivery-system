@@ -1,0 +1,293 @@
+# failure-modes.yaml — known failure registry for do-ticket
+#
+# Each mode = a recognizable failure pattern + auto-pivot recommendation.
+# When a phase fails, do-ticket consults this registry FIRST before falling
+# back to generic G1/G8 gates. Pivots are ordered: first match where
+# `when` evaluates true is used.
+#
+# Schema:
+#   id: FM-<DOMAIN>-<NUMBER>
+#   detect: signals that fingerprint this failure (string patterns or rules)
+#   severity: blocker | must-fix | warn | info
+#   pivots:
+#     - id: <pivot id>
+#       when: <condition>          # optional; default: always
+#       action: <human-readable action>
+#       skill: <skill to invoke>   # optional
+#       gate: <human gate to fire> # optional fallback
+#   escalate_to_user: <gate id>    # used if no pivot's when matches
+#
+# Auto-learn: /learn skill scans run-telemetry.yaml; if a failure recurs ≥3
+# times with same fingerprint and isn't in this registry → propose new entry.
+
+modes:
+  # ============================================================
+  # BUILD / TOOLING
+  # ============================================================
+
+  - id: FM-DLL-LOCKED
+    detect:
+      - "MSB3027"
+      - "file is locked"
+      - "Could not copy.*because it is being used by another process"
+    severity: blocker
+    pivots:
+      - id: ask-user-close-vs
+        action: "STOP. Ask user to close Visual Studio + stop running services that hold the DLL. Wait for confirmation. Rebuild."
+        gate: G4
+    escalate_to_user: G4
+
+  - id: FM-MISSING-NUGET
+    detect:
+      - "NU1101"
+      - "Unable to find package"
+    severity: blocker
+    pivots:
+      - id: restore
+        action: "Run `dotnet restore` once. If still fails, check NuGet.config for missing feed."
+      - id: ask-user-feed
+        when: "restore failed twice"
+        action: "Surface NuGet.config + missing feed, ask user."
+        gate: G4
+
+  - id: FM-NPM-LOCKFILE-CONFLICT
+    detect:
+      - "package-lock.json"
+      - "npm ERR! peer dep"
+      - "ERESOLVE"
+    severity: must-fix
+    pivots:
+      - id: clean-install
+        action: "rm -rf node_modules package-lock.json then npm install"
+      - id: ask-user
+        when: "clean install fails"
+        gate: G5
+
+  # ============================================================
+  # GIT / VCS
+  # ============================================================
+
+  - id: FM-REBASE-CONFLICT
+    detect:
+      - "CONFLICT (content):"
+      - "Automatic merge failed"
+    severity: blocker
+    pivots:
+      - id: surface-conflicts
+        action: "STOP. List conflicted files. Show: 'Resolve manually then run: git add <file> && git rebase --continue'. Save phase=blocked, blocked_reason=Rebase conflict, phase_before_block=<current>."
+        gate: G8
+    escalate_to_user: G8
+
+  - id: FM-LARGE-DIVERGENCE
+    detect:
+      - "rev-list --count HEAD..origin/<base> > 20"
+    severity: must-fix
+    pivots:
+      - id: offer-cherry-pick
+        action: "Offer (a) rebase anyway, (b) create <TICKET_ID>-v2 from main and cherry-pick selected commits."
+        gate: G5
+
+  - id: FM-PLAN-CHANGESET-DRIFT
+    detect:
+      - "git diff has files NOT in plan.md"
+      - "plan.md has files NOT in git diff"
+    severity: warn
+    pivots:
+      - id: ack-with-user
+        action: "Show the divergence table. Ask: 'Acknowledge unplanned changes (y) or unstage (n)? Acknowledge unimplemented files (y) or revisit (n)?'"
+        gate: G1
+
+  # ============================================================
+  # IMPLEMENT / TEST
+  # ============================================================
+
+  - id: FM-3X-SAME-ROOT
+    detect:
+      - "same error fingerprint appeared 3+ times in implement-log.md"
+    severity: must-fix
+    pivots:
+      - id: switch-strategy
+        when: "current implement strategy is tdd-strict AND error is integration-related"
+        action: "Switch implement strategy to prototype-then-harden. Re-run implement with new strategy."
+      - id: domain-deep-dive
+        when: "error message mentions invariant, business rule, or domain term"
+        action: "Pause implement. Invoke domain-problem-solver to investigate root cause."
+        skill: domain-problem-solver
+      - id: replan
+        when: "error suggests plan was wrong (missing dependency, wrong abstraction)"
+        action: "Write update-implement-vN.md with the discovery. Run implement-plan update."
+        skill: implement-plan
+      - id: ask-user
+        action: "G8 block: surface error + last 3 attempts. Offer choices: replan / guide / escalate / try-different-strategy."
+        gate: G8
+    escalate_to_user: G8
+
+  - id: FM-SILENT-API-BUG
+    detect:
+      - "HTTP 200 returned but field <X> not updated in DB"
+      - "API returned success but verification query shows old value"
+    severity: must-fix
+    pivots:
+      - id: return-to-implement
+        action: "Stop api-test. Show discrepancy. Set state phase=implement, blocked_reason='Silent bug in <endpoint>: <field> not persisted'. Resume implement with bug context."
+        skill: implement
+
+  - id: FM-FALSE-GREEN-TEST
+    detect:
+      - "test passed without exercising the SUT"
+      - "test asserts true on default empty result"
+    severity: must-fix
+    pivots:
+      - id: rewrite-test
+        action: "Surface the test. Offer: rewrite to exercise SUT, mark as pre-existing-flaky, or delete."
+        gate: G1
+
+  - id: FM-LAYER-VIOLATION
+    detect:
+      - "using Microsoft.EntityFrameworkCore in Domain/"
+      - "using Microsoft.AspNetCore in Application/Commands"
+      - "using System.Net.Http in Domain/"
+    severity: warn
+    pivots:
+      - id: warn-acknowledge
+        action: "Warn: 'Domain layer importing infrastructure namespace <ns> in <file>. Breaks layer isolation — intentional?' Require ack/fix."
+        gate: G1
+
+  # ============================================================
+  # SECURITY / SAFETY
+  # ============================================================
+
+  - id: FM-SECRETS-IN-DIFF
+    detect:
+      - "staged: .env"
+      - "staged: .env.*"
+      - "staged: *secret*"
+      - "staged: *password*"
+      - "staged: appsettings.Development.json"
+      - "staged: *.pfx | *.key"
+    severity: blocker
+    pivots:
+      - id: hard-stop
+        action: "HARD STOP. Show file. Provide: `git reset HEAD <file>` to unstage. Do not continue until cleared."
+        gate: G7
+    escalate_to_user: G7
+
+  - id: FM-UNPROTECTED-ENDPOINT
+    detect:
+      - "[Http(Get|Post|Put|Delete|Patch)] in *Controller.cs without [Authorize] within 5 lines"
+    severity: blocker
+    pivots:
+      - id: hard-stop
+        action: "HARD STOP. Endpoint <method> in <file> has no [Authorize]. Offer: fix / public-intentional. Wait for explicit confirmation."
+        gate: G7
+    escalate_to_user: G7
+
+  - id: FM-MIGRATION-DOWN-EMPTY
+    detect:
+      - "Down() body is empty | no-op | throw new NotSupportedException"
+    severity: warn
+    pivots:
+      - id: warn-acknowledge
+        action: "Warn: 'Migration Down() is empty — rollback requires manual DB intervention. Implement Down() or acknowledge.'"
+        gate: G1
+
+  # ============================================================
+  # ENVIRONMENT
+  # ============================================================
+
+  - id: FM-SERVICES-NOT-RUNNING
+    detect:
+      - "connection refused on localhost:<port>"
+      - "Could not connect to <service>"
+    severity: blocker
+    pivots:
+      - id: env-gate
+        action: "Stop. List required services for this ticket. Wait for explicit user confirmation that services are up."
+        gate: G-ENV
+
+  - id: FM-WRONG-ENV-PROFILE
+    detect:
+      - "browser profile mismatch"
+      - "wrong profile = access denied"
+    severity: must-fix
+    pivots:
+      - id: switch-profile
+        action: "Surface the required browser profile for this user role (e.g. admin vs portal). Ask user to switch profiles and retry."
+        gate: G4
+
+  - id: FM-CI-FAILURE
+    detect:
+      - "CI pipeline reported failed status"
+    severity: must-fix
+    pivots:
+      - id: classify
+        action: "Ask user: 'Is the failure (a) code issue (tests actually fail) or (b) environment issue (CI missing setup)?' Code → return to implement. Env → document as known risk, proceed."
+        gate: G5
+
+  # ============================================================
+  # CONTEXT / CONTRACT
+  # ============================================================
+
+  - id: FM-PREREQ-MISSING
+    detect:
+      - "child skill contract.inputs.required file missing"
+    severity: blocker
+    pivots:
+      - id: jump-back
+        action: "Identify earliest phase that produces the missing file. Offer: 'Run from <earliest missing phase> instead?' (y/n)"
+        gate: G1
+
+  - id: FM-FINGERPRINT-STALE
+    detect:
+      - "ticket-context.fingerprints.<file>_sha differs from current file SHA"
+    severity: warn
+    pivots:
+      - id: regen-downstream
+        when: "stale file is requirements.md or plan.md"
+        action: "File changed externally since last consumer ran. Offer: re-run dependent phases (analyze/test-cases/plan)?"
+        gate: G1
+      - id: warn-only
+        when: "stale file is qa-checklist.md or pr-description.md"
+        action: "Warn user that the artifact is based on older inputs. Offer regen."
+        gate: G1
+      - id: write-scan-gap
+        when: "stale file is a scan-init artifact (domain_index.yaml, db_index.yaml, etc.)"
+        action: "Append entry to {project_docs}/scan-gap-signals.yaml: {source_skill: do-ticket, source_ticket: <TICKET_ID>, artifact: <stale_file>, sub_command: <derived from artifact path>, gap_type: stale_artifact, detail: 'fingerprint mismatch at phase <phase>', proposed_action: 'scan-init <sub_command> --force', status: open}. Then proceed with existing pivot (regen-downstream or warn-only)."
+
+  - id: FM-DEPENDENT-TICKET-NOT-DONE
+    detect:
+      - "analyze-requirements identifies a dependent ticket whose status != Done"
+    severity: must-fix
+    pivots:
+      - id: choice
+        action: "Show dependent ticket ID + status. Offer: (a) block until done, (b) proceed with assumed-merged stub, (c) descope this ticket."
+        gate: G1
+
+  # ============================================================
+  # PR / REVIEW
+  # ============================================================
+
+  - id: FM-PR-SPLIT-REQUEST
+    detect:
+      - "reviewer says split | break this PR"
+    severity: must-fix
+    pivots:
+      - id: split-plan
+        action: "Invoke handle-pr-review. Write split-plan.md grouping comments by section. Increment pr_count. Guide user through split."
+        skill: handle-pr-review
+
+  - id: FM-PR-ARCHITECTURE-CHANGE
+    detect:
+      - "reviewer requests architectural change | redesign | restructure"
+    severity: must-fix
+    pivots:
+      - id: scope-decision
+        action: "Estimate scope of change. Offer: include in this PR (extends scope), defer to follow-up ticket, or reject reviewer suggestion with rationale."
+        gate: G6
+
+# Auto-learn protocol:
+# After each ticket, /learn scans run-telemetry.yaml across all tickets.
+# If a failure pattern recurs ≥3 times AND its fingerprint doesn't match
+# any existing FM-XX → /learn proposes a new entry to this file with
+# detect signals, suggested pivot, and severity. User confirms before
+# adding.
