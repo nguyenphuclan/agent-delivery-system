@@ -1,0 +1,32 @@
+# Sync tracker — agent-delivery-system public mirror
+# Records the last commit from the private skills repo that was synced into this repo.
+# Usage:
+#   1. git log <last_synced_commit>..HEAD -- skills/<skill>/SKILL.md  (in private repo)
+#   2. Review + sanitize the diff
+#   3. Apply changes to this repo
+#   4. Update last_synced_commit + last_synced_at below
+
+private_repo: ~/.claude/skills
+
+skills:
+  scan-init:
+    source_file: skills/scan-init/SKILL.md
+    last_synced_commit: c205b84
+    last_synced_at: 2026-05-14
+
+  do-ticket:
+    source_files:
+      - skills/do-ticket/SKILL.md
+      - skills/do-ticket/phase-contracts.yaml
+      - skills/do-ticket/failure-modes.yaml
+      - skills/do-ticket/ticket-types.md
+      - skills/do-ticket/ticket-context-schema.md
+      - skills/do-ticket/do-ticket-patterns.md
+      - skills/do-ticket/run-telemetry-schema.md
+    last_synced_commit: c205b84
+    last_synced_at: 2026-05-14
+
+  domain-problem-solver:
+    source_file: skills/domain-problem-solver/SKILL.md
+    last_synced_commit: c205b84
+    last_synced_at: 2026-05-14
