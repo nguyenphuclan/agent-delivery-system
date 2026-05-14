@@ -23,7 +23,13 @@ skills:
       - skills/do-ticket/ticket-context-schema.md
       - skills/do-ticket/do-ticket-patterns.md
       - skills/do-ticket/run-telemetry-schema.md
-    last_synced_commit: c205b84
+      - skills/do-ticket/promote-knowledge.md
+    last_synced_commit: b350ddd
+    last_synced_at: 2026-05-14
+
+  promote-observations:
+    source_file: skills/promote-observations/SKILL.md
+    last_synced_commit: b350ddd
     last_synced_at: 2026-05-14
 
   domain-problem-solver:

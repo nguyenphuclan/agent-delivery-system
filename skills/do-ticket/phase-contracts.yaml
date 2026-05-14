@@ -398,6 +398,35 @@ contracts:
       phase: pr-review
     triggers_re_run: "Phases 5-13 re-run in update mode"
 
+  promote-knowledge:                    # Phase 22.5 — see promote-knowledge.md for full spec
+    skill: promote-observations (extended)
+    inputs:
+      required:
+        - "implement-summary.md"
+        - "plan.md"
+        - "requirements-analysis.md"
+        - "git diff of merge commit"
+        - "~/.claude/skills/assistant/observations.md"
+        - "{project_docs}/_index.yaml"
+        - "{project_docs}/domain/_index.yaml"
+        - "{project_docs}/INDEX.md"
+      optional:
+        - "invariants_encoded.yaml"
+    outputs:
+      - "promoted.md"
+      - "Updates to {project_docs}/domain/, concepts/, patterns/, runbooks/, _quickref.yaml, INDEX.md"
+      - "_index.yaml fingerprint refresh"
+      - "ticket-context.yaml (+ promoted_count, new_files_created[])"
+    state_writes:
+      phase: promote-knowledge
+    user_gate:
+      "Show detection table → wait for approve / skip / reclassify / merge / rename"
+    skip_when:
+      - "ticket_type ∈ {doc-only, spike, hotfix}"
+      - "user opted out via --no-promote flag"
+    failure_modes: [FM-PROMOTE-DUP-CONFLICT, FM-PROMOTE-FINGERPRINT-DRIFT, FM-PROMOTE-INDEX-WRITE-FAIL, FM-PROMOTE-NO-ENTITY, FM-PROMOTE-OVER-EAGER]
+    hard_stops_on: [FM-PROMOTE-INDEX-WRITE-FAIL]
+
   done:                                 # Phase 23
     skill: do-ticket internal
     inputs:
