@@ -1,9 +1,12 @@
 # SKILL: scan-init
-Version: 2.0.0
+Version: 2.1.0
 Description: >
   Scan a project and produce structured artifact groups consumed by do-ticket and other skills.
   Supports sub-commands per artifact group. Outputs to public-project-docs/<project>/.
   Stale-checks before each scan; calls live-sync after each write.
+
+**Companion specs (authoritative — do NOT inline here):**
+- `surface-layers.md` — 8 mandatory navigation surfaces (S1-S8) + 4 content-coverage rules (C1-C4) every scan emits. Required for agents to answer general questions without re-reading code. Verified by `scan-init verify`. Highlights: S1 features_summary; S2 overloaded_terms registry; S3 subtypes per entity; S4 see_also cross-links; S5 side-by-side comparison artifacts for ≥2-variant concerns; S6 acronyms.yaml glossary; S7 `consumer_resolved:` on topology orphan flags; **S8 lifecycle_traces/<entity>.yaml promoted from DPS findings**; C1 gateway_contract; C2 background_workers per service; C3 feature_flags_catalog; C4 failure-mode template. Empirically derived from (a) the 34-case scan-quality test (28 pass / 6 partial → S1-S7 + C1-C4) and (b) the PROJ-10869 do-ticket-analyze test (80% impact coverage; 3 code-lifecycle traps missed → S8).
 
 ---
 
@@ -18,6 +21,7 @@ Description: >
 | `scan-init conventions` | `conventions/git.yaml`, `conventions/ci.yaml`, `conventions/security.yaml` | 1 (auto) |
 | `scan-init incidents` | `incidents/incidents.yaml`, `incidents/_concerns.yaml` | 1 (auto) — Jira-sourced |
 | `scan-init topology` | `topology/topology.yaml`, `topology/_concerns.yaml` | 1 (auto) — cross-repo + optional infra |
+| `scan-init flows` | `flows/flow_index.yaml`, `flows/_concerns.yaml` | 2 (scaffold + user confirm) — business flows (rerouting, indication, sync, etc.) with triggers × effects × known_gates. Consumed by do-ticket Phase 6c flow-gate. |
 | `scan-init all` | Runs all sub-commands in order above | — |
 | `scan-init verify` | Coverage + schema validation across all artifact groups | 1 (auto) |
 | `scan-init verify --establish-baseline` | After verify passes 100% → write `baseline:` block to `_index.yaml` | 1 (auto, gated by verify pass) |
@@ -59,6 +63,7 @@ Invoke with `--force` to skip the stale check and run unconditionally (used by `
 | conventions | 30 | Conventions very stable |
 | incidents | 14 | Bugs are resolved on weekly cadence; daily refresh is overkill |
 | topology | 10 | Infra changes slowly, code changes weekly — compromise. Cross-links incidents on every refresh. |
+| flows | 30 | Business flows are very stable (rerouting, indication, sync don't change shape often). Re-scan when a major new feature lands or a flow gains a new trigger channel. |
 
 For every sub-command (except `all`):
 
@@ -97,6 +102,7 @@ Each sub-command has its own state file:
 | conventions | `conventions/conventions_scan_state.json` |
 | incidents | `incidents/incidents_scan_state.json` |
 | topology | `topology/topology_scan_state.json` |
+| flows | `flows/flow_scan_state.json` |
 
 Resume rule: if state file exists with `status: in_progress` → resume from `last_position`. If `status: done` → skip (already fresh, confirmed by stale check).
 
@@ -126,11 +132,11 @@ public-project-docs/<project>/code/
 
 ```
 repos:
-  shared_lib:       myapp-shared        ← scan FIRST (others depend on it)
-  api_service:      myapp-api-service
-  api_admin:        myapp-api-admin
-  identity:         myapp-identity
-  frontend:         myapp-frontend
+  shared_lib:       acme-shared-lib        ← scan FIRST (others depend on it)
+  api_task:         acme-api-task
+  api_portal:       acme-api-portal
+  identity:         acme-identity
+  frontend:         acme-frontend
 ```
 
 **Scan order (mandatory):**
@@ -164,7 +170,7 @@ Must complete before any repo's domain is classified. Run across all repos simul
 
 Answer: *"What dimensions does this system vary across at the product level?"*
 
-**Naming note:** previously called `project_layers`. Renamed to `variability_axes` — `layer` was confusable with architectural layers (controller/service/repo). An axis is a dimension along which the system's behavior branches. Values along an axis are mutually exclusive at any given runtime point (e.g. one cluster at a time, one party identity at a time).
+**Naming note:** previously called `project_layers` (pre-2026-05-13). Renamed to `variability_axes` — `layer` was confusable with architectural layers (controller/service/repo). An axis is a dimension along which the system's behavior branches. Values along an axis are mutually exclusive at any given runtime point (e.g. one cluster at a time, one party identity at a time).
 
 **Detection patterns:**
 
@@ -172,9 +178,9 @@ Answer: *"What dimensions does this system vary across at the product level?"*
 |---|---|---|
 | Repeated conditional variable | `if (cluster === ...)` in >5 places across >3 files | Cluster axis |
 | Module/source branching | `if (module === 'X')` | Module axis |
-| Role/permission branching | `if (role === 'admin')` | Role axis |
-| Group-specific config files | `region-a.config.js`, `tenant-b.config.json` | Confirms/adds an axis |
-| Repeated directory structure | `/Modules/Orders/Processing`, `/Modules/Inventory/Tracking` | Module axis |
+| Role/permission branching | `if (role === 'PO')` | Role axis |
+| Group-specific config files | `cluster-A.config.js`, `contractor.config.json` | Confirms/adds an axis |
+| Repeated directory structure | `/Modules/Service/Task`, `/Modules/Fulfillment/Task` | Module axis |
 | Environment branching (Angular) | `environment.prod.ts`, `if (environment.production)` | Environment axis |
 | Route guard / feature flag (Angular) | `canActivate: [RoleGuard]`, `*ngIf="hasFeature('X')"` | Role/feature-flag axis |
 
@@ -298,7 +304,7 @@ All sub-commands write to `{output_root}/<folder>/_concerns.yaml` using the sche
   "detected_layers": [],
   "repos": {
     "shared_lib": { "status": "done", "detected_stack": "dotnet", "scanned_dirs": [], "pending_dirs": [] },
-    "api_service":   { "status": "in_progress", "detected_stack": "dotnet", "scanned_dirs": [], "pending_dirs": [] },
+    "api_task":   { "status": "in_progress", "detected_stack": "dotnet", "scanned_dirs": [], "pending_dirs": [] },
     "frontend":   { "status": "pending", "detected_stack": null }
   },
   "agent_excluded_dirs": []
@@ -344,10 +350,10 @@ Flag any of these when encountered. Never skip, never force-fit — use `UNKNOWN
 ```yaml
 complexity_flags:
   - type: IMPLICIT_STATE
-    location: myapp-api-service/services/core/processor.cs:47
+    location: acme-api-task/services/task/processor.cs:47
     symptom: "save() triggers unclear downstream events"
     risk: high
-    service: api_service
+    service: api_task
 ```
 
 ### High-severity complexity_flag — linked_concern mandatory
@@ -357,13 +363,13 @@ If a `complexity_flags` entry in any shard has `risk: high`, it MUST have a `lin
 ```yaml
 # OK: high risk with linked_concern
 - type: IMPLICIT_STATE
-  location: Services/OrderProcessor.cs:39
+  location: Services/SlaPartyUpdater.cs:39
   risk: high
   linked_concern: c-024
 
 # NOT OK: high risk without linked_concern
 - type: TEMPORAL_COUPLING
-  location: Billing/InvoiceCalculator.cs
+  location: SlaKpi/KpiCalculator.cs
   risk: high
   # ← missing linked_concern → scan-init MUST emit a warning and create a stub _concerns entry
 ```
@@ -378,14 +384,14 @@ After each scan run, compute per-shard severity distribution:
 
 If `max_high_pct > median_high_pct + 0.20` OR `min_high_pct < median_high_pct - 0.20` → emit warning: severity calibration may be drifting between shards.
 
-Example (myapp calibration check):
+Example (acme state on 2026-05-13):
 ```
-  notifications: 0% high (0/8)
-  orders:        14% high (2/14)
-  fulfillment:   25% high (3/12)
-  median: 14%, max: 25%, min: 0%
-  ⚠ max - median = 11% (OK)
-  ⚠ median - min = 14% (OK, near threshold)
+  mock:      0% high (0/10)
+  scheduler: 15% high (2/13)
+  sla:       27% high (3/11)
+  median: 15%, max: 27%, min: 0%
+  ⚠ max - median = 12% (OK)
+  ⚠ median - min = 15% (OK, near threshold)
 ```
 
 The agent SHOULD note this in `_index.yaml.artifacts.code.calibration_note` so review can decide whether some shards under-flag or others over-flag.
@@ -414,14 +420,14 @@ modules:
 ```
 
 **What does NOT go in `modules:`:**
-- `sla-entity-model` (pure data model — already in `namespaces.Acme.Task.Sla.Entities`)
+- `sla-entity-model` (pure data model — already in `namespaces.Mose.Task.Sla.Entities`)
 - `api-controllers` (pure delivery — already in `namespaces.<svc>.Controllers`)
 - `error-codes`, `infrastructure` (cross-cutting plumbing — already in namespaces)
 
 **What DOES go in `modules:`:**
-- `deadline-calculation` — has the rule evaluation behavior
-- `notification-to-event` — has the ingest/parse/create pipeline
-- `event-tracking` — has the enrichment behavior
+- `sla-deadline-calculation` — has the rule evaluation behavior
+- `email-to-ticket` — has the IMAP/parse/create pipeline
+- `domain-event-tracking` — has the MediatR enrichment behavior
 
 **`parent:` field consistency:** if a shard uses `parent:` at all, every entry in `business_modules:` MUST have a `parent:` (use `parent: root` for top-level). Mixed-presence is forbidden — reader cannot tell "missing parent = top-level" from "missing parent = forgot to set".
 
@@ -443,7 +449,7 @@ scan_metadata:
   partial_reverify: [<concern-id>, ...]
   recommended_tickets: [<concern-id>, ...]   # high-severity confirmed-intent entries from this shard
   unverified_legacy_findings: <int>          # count of legacy_carryover entries from this shard
-  severity_distribution:                     # agent fills at scan time
+  severity_distribution:                     # ADDED 2026-05-13 — agent fills at scan time
     high: <int>
     medium: <int>
     low: <int>
@@ -451,7 +457,7 @@ scan_metadata:
   test_coverage_gaps:
     - concern_id: <id>
       gap: <one-line description>
-  followups:                                 # renamed from cross_repo_followups
+  followups:                                 # RENAMED 2026-05-13 from cross_repo_followups
     - concern_id: <id>
       scope: in_repo | cross_repo | external_team
       followup: <one-line>
@@ -465,11 +471,11 @@ notes:
 
 **Field rationale:**
 
-- `severity_distribution` (added in v2): agent computes (high/medium/low/total) at write time. Eliminates the need for downstream skills to recount entries when running cross-shard calibration. Required field, even when total=0.
-- `followups` (renamed in v2 from `cross_repo_followups`): the old name implied cross-repo only. In practice agents were misclassifying in-repo deferrals (e.g. "didn't grep Startup.cs") as cross-repo. The `scope:` field forces the agent to think — `in_repo` means "I could verify but skipped"; `cross_repo` means "another reconciled-or-stub repo needs check"; `external_team` means "needs human + domain knowledge to resolve".
-- `reverified_at` (added in v2): set when a later pass deep-reads previously-hunch carry-overs. This was implicit until a review pass made it explicit.
+- `severity_distribution` (added 2026-05-13): agent computes (high/medium/low/total) at write time. Eliminates the need for downstream skills to recount entries when running cross-shard calibration. Required field, even when total=0.
+- `followups` (renamed 2026-05-13 from `cross_repo_followups`): the old name implied cross-repo only. In practice the connector pilot showed agents misclassifying in-repo deferrals (e.g. "didn't grep Startup.cs") as cross-repo. The `scope:` field forces the agent to think — `in_repo` means "I could verify but skipped"; `cross_repo` means "another reconciled-or-stub repo needs check"; `external_team` means "needs human + domain knowledge to resolve".
+- `reverified_at` (added 2026-05-13): set when a later pass deep-reads previously-hunch carry-overs. SLA reverify pass 2026-05-13 needed this; spec was implicit until then.
 
-**Why separate metadata from notes:** previously both were mixed in `notes:`. Reader looking for domain understanding had to wade through scan metadata. Downstream skills had no machine-readable handle on `recommended_tickets`. A domain review pass forced this split.
+**Why separate metadata from notes:** previously both were mixed in `notes:`. Reader looking for domain understanding had to wade through scan metadata. Downstream skills had no machine-readable handle on `recommended_tickets`. SLA review 2026-05-13 forced this split.
 
 ### domain_index.yaml (TOC format — multi-repo)
 
@@ -479,24 +485,24 @@ notes:
 # Mode: multi_repo
 
 services:
-  shared_lib:  myapp-shared
-  api_service: myapp-api-service
-  api_admin:   myapp-api-admin
-  identity:    myapp-identity
-  frontend:    myapp-frontend
+  shared_lib:  acme-shared-lib
+  api_task:    acme-api-task
+  api_portal:  acme-api-portal
+  identity:    acme-identity
+  frontend:    acme-frontend
 
 variability_axes:
   - name: cluster
     confidence: high
-    detected_via: "if (cluster === ...) found 15 times across 5 files in api_service, api_admin"
-    values: [region-a, region-b, standard, enterprise]
+    detected_via: "if (cluster === ...) found 47 times across 12 files in api_task, api_portal"
+    values: [A, B, telco, enterprise]
 
 shards:
   shared:              domain_index_shared.yaml
   cross_cutting:       domain_index_cross_cutting.yaml
-  api_service_domain:  domain_index_api_service_domain.yaml
-  api_service_infra:   domain_index_api_service_infra.yaml
-  api_admin_portal:    domain_index_api_admin_portal.yaml
+  api_task_task:       domain_index_api_task_task.yaml
+  api_task_infra:      domain_index_api_task_infra.yaml
+  api_portal_portal:   domain_index_api_portal_portal.yaml
   identity_auth:       domain_index_identity_auth.yaml
   frontend_task:       domain_index_frontend_task.yaml
 ```
@@ -560,21 +566,21 @@ No sample data. No stored procedures. No trigger bodies. Schema only.
 # Connection: <host>/<db_name>  (no credentials stored)
 
 tables:
-  order:
+  task:
     columns:
       id: uuid
       status: varchar
-      tenant_id: int
+      cluster_id: int
     fk:
-      tenant_id: tenant.id
-    indexes: [status, tenant_id]
+      cluster_id: cluster.id
+    indexes: [status, cluster_id]
 
 enums:
-  order_status: [pending, processing, completed, cancelled]
+  task_status: [open, in_progress, done, cancelled]
 
 views:
-  v_order_summary:
-    source_tables: [order, user, tenant]
+  v_task_summary:
+    source_tables: [task, user, cluster]
 ```
 
 ### Auto-stale warning
@@ -596,7 +602,7 @@ domain/
   _index.yaml          ← entity registry + maturity summary
   _glossary.yaml       ← term → definition (cross-entity)
   _maturity.yaml       ← invariant maturity tiers
-  <EntityName>.yaml    ← one per entity (e.g. OrderEntity.yaml)
+  <EntityName>.yaml    ← one per entity (e.g. TaskEntity.yaml)
 ```
 
 ### Extraction steps
@@ -626,31 +632,31 @@ D-5  Write _index.yaml with entity list + maturity summary
 
 ```yaml
 # Auto-generated by scan-init v2.0.0 — domain sub-command
-entity: OrderEntity
-source: Modules/Orders/Models/OrderEntity.cs
+entity: TaskEntity
+source: Modules/Task/Models/TaskEntity.cs
 last_updated: <ISO>
 
 fields:
   id: uuid
-  status: order_status (enum)
-  tenant_id: int (FK → tenant)
+  status: task_status (enum)
+  cluster_id: int (FK → cluster)
 
 state_machine:
-  states: [Pending, Processing, Completed, Cancelled]
+  states: [Open, InProgress, Done, Cancelled, Denied]
   transitions:
-    - from: Pending
-      to: [Processing, Cancelled]
-      trigger: SubmitOrder / CancelOrder
+    - from: Open
+      to: [InProgress, Cancelled]
+      trigger: AcceptTask / CancelTask
   notes: ""
 
 invariants:
   - id: INV-001
-    description: "Order cannot transition from Completed to any state"
+    description: "Task cannot transition from Done to any state"
     maturity: tier1
-    enforced_at: OrderEntity constructor line 38
+    enforced_at: TaskEntity constructor line 42
 
 lifecycle:
-  created_by: OrderService.CreateAsync
+  created_by: TaskService.CreateAsync
   deleted_by: soft-delete only (IsDeleted flag)
 ```
 
@@ -683,45 +689,45 @@ Group `build.yaml` entries by `service_key`. Group `test.yaml` entries by `servi
 **build.yaml** — from `*.csproj` / `package.json` (grouped by repo):
 ```yaml
 repos:
-  myapp-api-service:
+  acme-api-task:
     stack: dotnet
-    build_cmd: "dotnet build src/ServiceApi.csproj"
+    build_cmd: "dotnet build src/TaskApi.csproj"
     output_dir: bin/Release/net8.0/
     target_framework: net8.0
-  myapp-frontend:
+  acme-frontend:
     stack: angular
-    build_cmd: "npm run build --project=myapp-web"
-    output_dir: dist/myapp-web/
+    build_cmd: "npm run build --project=acme-client"
+    output_dir: dist/acme-client/
 ```
 
 **run.yaml** — from `launchSettings.json` + `docker-compose.yml`:
 ```yaml
 services:
-  service-api:
+  task-api:
     port: 5001
-    profile: "ServiceApi"
+    profile: "TaskApi"
     depends_on: [postgres, redis]
-  identity:
+  identity-provider:
     port: 5002
-    profile: "Identity"
+    profile: "IdentityProvider"
     depends_on: [postgres]
 ```
 
 **test.yaml** — from `*.Tests.csproj` + test class base class detection (flat list, `repo` field for attribution):
 ```yaml
 test_projects:
-  - project: ServiceApi.Tests
-    repo: myapp-api-service
-    run_cmd: "dotnet test src/ServiceApi.Tests/ServiceApi.Tests.csproj"
-    base_class: IntegrationTestBase
+  - project: TaskApi.Tests
+    repo: acme-api-task
+    run_cmd: "dotnet test src/TaskApi.Tests/TaskApi.Tests.csproj"
+    base_class: RunTestWithPostgres
     uses_real_db: true
-    test_count_approx: 32
-  - project: AdminApi.Tests
-    repo: myapp-api-admin
-    run_cmd: "dotnet test src/AdminApi.Tests/AdminApi.Tests.csproj"
-    base_class: IntegrationTestBase
+    test_count_approx: 47
+  - project: PortalApi.Tests
+    repo: acme-api-portal
+    run_cmd: "dotnet test src/PortalApi.Tests/PortalApi.Tests.csproj"
+    base_class: RunTestWithPostgres
     uses_real_db: true
-    test_count_approx: 18
+    test_count_approx: 23
 ```
 
 ---
@@ -747,7 +753,7 @@ conventions/
 **git.yaml** — from `.git/config` + branch name heuristics:
 ```yaml
 branch:
-  feature_prefix: ""          # e.g. bare ticket IDs, no prefix
+  feature_prefix: ""          # acme uses bare ticket IDs, no prefix
   hotfix_prefix: "hotfix/"
   main_branch: master
   protected_branches: [master, main]
@@ -760,20 +766,20 @@ commit:
 ```yaml
 provider: github-actions
 repos:
-  myapp-api-service:
+  acme-api-task:
     workflows:
       - name: build-and-test
-        path: myapp-api-service/.github/workflows/build.yml
+        path: acme-api-task/.github/workflows/build.yml
         triggers: [push, pull_request]
         runs_on: ubuntu-latest
-  myapp-frontend:
+  acme-frontend:
     workflows:
       - name: ng-build
-        path: myapp-frontend/.github/workflows/ng-build.yml
+        path: acme-frontend/.github/workflows/ng-build.yml
         triggers: [push, pull_request]
         runs_on: ubuntu-latest
 pr_template: .github/PULL_REQUEST_TEMPLATE.md    # from any repo that has it
-version_bump_strategy: "feat/* branch → minor; PROJECT-* → patch"
+version_bump_strategy: "feat/* branch → minor; PROJ-* → patch"
 ```
 
 If all repos share the same workflow file (monorepo-style): collapse into a single `workflows:` block without per-repo grouping.
@@ -955,7 +961,7 @@ FIELDS:
     - high: root cause is structural/architectural (will re-occur unless redesigned)
     - medium: config drift could re-introduce
     - low: one-off (typo, bad data, specific user error)
-  related_tickets: List of ticket keys referenced in ticket text (e.g. "see PROJECT-1024").
+  related_tickets: List of ticket keys referenced in ticket text (e.g. "see PROJ-9701").
   similar_pattern_keywords: 3-8 LOWERCASE keywords future agents could grep.
     Prefer domain terms (rabbitmq, ack, deadlock, prefetch) over generic (bug, error).
   lessons: 1-3 bullets, each in form "<noun phrase> — <what's surprising/non-obvious>".
@@ -1100,10 +1106,10 @@ Use the same schema as other folders (see `_shared/agent-docs-layout.md`). Domin
   "status": "in_progress",
   "started_at": "<ISO>",
   "tier1": {
-    "jql_total": 48,
-    "processed_count": 20,
-    "last_processed_key": "PROJECT-1042",
-    "skipped_thin": ["PROJECT-1038", "PROJECT-1031"],
+    "jql_total": 137,
+    "processed_count": 42,
+    "last_processed_key": "PROJ-9876",
+    "skipped_thin": ["PROJ-9810", "PROJ-9722"],
     "extraction_errors": []
   },
   "tier2": {
@@ -1344,7 +1350,7 @@ Plus patterns from `messaging.extra_attribute_patterns` in projects.yaml.
 
 ```
 Order of preference (first hit wins):
-  1. String literal in call: BasicPublish("ORDER_SYNC_JOB", ...)
+  1. String literal in call: BasicPublish("SYNC_AC_INFO_JOB", ...)
   2. [Queue("...")] attribute on the class containing the call
   3. const string QueueName = "..." in same class
   4. RabbitMqOptions binding in startup (Configure<RabbitMqOptions>(...))
@@ -1390,30 +1396,30 @@ retry_policy:
 # Total high-severity health_flags: <int>
 
 queues:
-  ORDER_SYNC_JOB:
+  SYNC_AC_INFO_JOB:
     broker: rabbitmq
 
     published_by:
-      - repo: myapp-api-service
-        class: OrderSyncPassiveEndpointJob
-        location: src/Jobs/OrderSyncPassiveEndpointJob.cs:42
+      - repo: acme-api-task
+        class: SyncAcPassiveEndpointJob
+        location: src/Jobs/SyncAcPassiveEndpointJob.cs:42
         publish_method: BatchPublishAsync
         attributes:
           confirm_mode: not_set         # not_set | required | optional
           mandatory: false
 
     consumed_by:
-      - repo: myapp-api-service
-        class: OrderSyncJobQueueFlow
-        location: src/Consumers/OrderSyncJobQueueFlow.cs:18
+      - repo: acme-api-task
+        class: SyncAcInfoJobQueueFlow
+        location: src/Consumers/SyncAcInfoJobQueueFlow.cs:18
         attributes:
           ack_mode: auto                # manual | auto | default-by-lib
           prefetch: 50                  # int or "default-by-lib"
           concurrent: 4                 # int or null
-          retry_policy: "retry on serialization error, no backoff"
+          retry_policy: "retry on 40001, no backoff"
 
     declared_in:                        # populated only if infra_mode != "none"
-      - repo: myapp-infra
+      - repo: acme-infra-helm
         path: charts/rabbitmq/values.yaml
         line: 47
         durability: false
@@ -1424,12 +1430,12 @@ queues:
         auto_delete: false
 
     related_dashboards:                 # populated only if dashboards repo set
-      - repo: myapp-dashboards
+      - repo: acme-grafana
         path: dashboards/rabbitmq-overview.json
-        panels_referencing: ["ORDER_SYNC_JOB depth", "consumer ack rate"]
+        panels_referencing: ["SYNC_AC_INFO_JOB depth", "consumer ack rate"]
 
     cross_links:                        # populated only if incidents.yaml exists
-      incidents: [PROJECT-1050, PROJECT-1042]   # tickets mentioning this queue
+      incidents: [PROJ-10909, PROJ-9876]   # tickets mentioning this queue
       heuristics: []                          # populated when heuristics/ files land later
 
     health_flags:
@@ -1445,11 +1451,11 @@ queues:
         linked_concern: c-102
 
 publishers_index:                       # class name → queues list (fast lookup)
-  OrderSyncPassiveEndpointJob: [ORDER_SYNC_JOB]
+  SyncAcPassiveEndpointJob: [SYNC_AC_INFO_JOB]
   TaskCreatedEventPublisher: [TASK_CREATED, ...]
 
 consumers_index:                        # class name → queues list (fast lookup)
-  OrderSyncJobQueueFlow: [ORDER_SYNC_JOB]
+  SyncAcInfoJobQueueFlow: [SYNC_AC_INFO_JOB]
 
 orphans:
   declared_no_publisher: [LEGACY_QUEUE_NAME, ...]   # in infra but no code publisher
@@ -1541,7 +1547,7 @@ Use the standard schema (`_shared/agent-docs-layout.md`). For each `high`-severi
   "started_at": "<ISO>",
   "infra_mode": "full | partial | none",
   "last_phase": "phase_1_app | phase_2_infra | phase_3_crosslink | phase_4_health | phase_5_incidents | done",
-  "repos_completed": ["api_service", "api_admin"],
+  "repos_completed": ["api_task", "api_portal"],
   "repos_pending": ["frontend"],
   "queue_count": 0,
   "dynamic_queue_names": [],
@@ -1573,6 +1579,383 @@ Use the standard schema (`_shared/agent-docs-layout.md`). For each `high`-severi
 - Modify code or infra files (read-only scan)
 - Skip Phase 5 if incidents.yaml exists — the cross-links are the highest-value output
 - Default to "infra_coverage: full" when infra_repos has nulls — accuracy matters for downstream skills
+
+---
+
+## scan-init flows
+
+Builds a flow-centric registry of business flows for the project — the unit of business value developers actually think in. Answers: *"What flows exist? Each flow has which triggers? Reaches which effects? Has which past incidents? Where are the known gates?"*
+
+**Purpose:** consumed by `do-ticket` Phase 6c (flow-gate) to detect tickets that touch business flows with `health != ok` OR `known_gates[]` and proactively route them to `domain-problem-solver` for a deep `flow-trace` BEFORE plan. Replaces the "wait for FM-3X-SAME-ROOT during implement" recovery pattern.
+
+**Why flow-centric** (vs the earlier field-centric lifecycle approach, deprecated 2026-05-14):
+- Developers describe tickets in flow terms ("rerouting doesn't fire", "indication missed"), not field terms
+- A flow has ~3-5 triggers + 1 expected effect — small graph, easy to reason about
+- Most field-level cascade info is already in code/domain_index + topology + incidents — don't duplicate
+- Flow registry is small (~10-30 entries per project) and stable; lifecycle would have been 100s of fields
+
+**Source**:
+- `{project_docs}/code/domain_index.yaml` (services + controllers + dispatchers)
+- `{project_docs}/domain/_index.yaml` + `_relationships.yaml` (entity relationships → flow boundaries)
+- `{project_docs}/topology/topology.yaml` (RabbitMQ pubsub edges → async flow boundaries)
+- `{project_docs}/incidents/incidents.yaml` (past bugs grouped by flow keyword → past_incidents per flow)
+- App code repos for entry handler verification
+
+**Output**:
+```
+public-project-docs/<project>/flows/
+  flow_index.yaml                  ← per-flow registry: triggers × effects × anchors × health × known_gates
+  _concerns.yaml                   ← agent observations during scan
+  flow_scan_state.json
+```
+
+### Sub-command signature
+
+```
+scan-init flows [--flow=<id>] [--force]
+```
+
+- Default: scan-and-update all flows; new flows propose-and-confirm with user (Tier 2)
+- `--flow=<id>`: scan a single flow only (faster — useful when one flow gained a new trigger channel)
+- `--force`: skip stale check
+
+### Required preconditions
+
+| Precondition | Action if missing |
+|---|---|
+| `{project_docs}/code/domain_index.yaml` status == fresh | Error + exit: "scan-init flows requires fresh code artifact. Run `scan-init code` first." |
+| `{project_docs}/domain/_index.yaml` exists | Error + exit: "scan-init flows requires domain artifact. Run `scan-init domain` first." |
+| `{project_docs}/topology/topology.yaml` | OPTIONAL — if present, used to derive async flow boundaries (RabbitMQ publishers → consumers) |
+| `{project_docs}/incidents/incidents.yaml` | OPTIONAL — if present, used to attach `past_incidents[]` per flow |
+
+### Discovery strategy
+
+This is **NOT a full code scan** — flows are inherently business-level. Mix three sources to propose flows, then user confirms:
+
+1. **Topology edges** (async flows): every RabbitMQ queue with stable publishers + consumers AND a recognizable business name (e.g. `Dw*`, `Sync*`, `Indication*`, `SendIn*`) → candidate flow.
+2. **Domain relationships**: `domain/_relationships.yaml` chains (e.g. `CHAIN-INC-1`, `CHAIN-SVC-1`) → candidate flow.
+3. **Past incidents grouped by keyword**: incidents with shared `similar_pattern_keywords` (≥3 incidents) → candidate flow.
+4. **Code clusters**: controllers with naming pattern `*FlowController` → confirmed flows.
+
+For each candidate, propose to user with one-line description + detected anchors. User confirms / edits name / skips. Then deep-fill the entry by querying domain + code + topology + incidents for the confirmed flow.
+
+### Extraction algorithm
+
+```
+FL-1  STALE CHECK (skipped when --force)
+      Read _index.yaml → artifacts.flows.fingerprint + last_updated
+      If matches AND last_updated < 30 days → emit "FRESH, skip" and exit
+
+FL-2  PRECONDITION CHECK
+      Verify code + domain artifacts. Fail per "Required preconditions" table.
+
+FL-3  CANDIDATE DISCOVERY
+      Source 1: glob {project_docs}/topology/queues[] — for each queue with named pubsub pair, derive candidate flow id from queue name (e.g. SYNC_AC_INFO_JOB → ac-info-sync)
+      Source 2: read {project_docs}/domain/_relationships.yaml — each chain → candidate flow
+      Source 3: scan {project_docs}/incidents/incidents.yaml.indexes.by_keyword for keywords appearing in ≥3 incidents → candidate
+      Source 4: grep code shards for "*FlowController" classes → candidate (these are confirmed flows by naming convention)
+      
+      Deduplicate by candidate id. Compute candidate.source_signals list.
+
+FL-4  USER CONFIRMATION (Tier 2 — required for new flows)
+      For each candidate not yet in flow_index.yaml:
+        Show: id, one-line description (derived from source signals), source_signals, suggested anchor handlers
+        Ask: "Confirm / Rename / Skip / Edit description"
+      For each existing flow in flow_index.yaml:
+        If source signals changed (new trigger detected, new incident linked, health changed):
+          Show diff, ask user to acknowledge/edit
+
+FL-5  PER-FLOW DEEP FILL
+      For each confirmed flow F:
+        FL-5.1  TRIGGERS: list all entry handlers
+          For each entry handler (from code shards + topology consumers + controller scan):
+            Capture: id, description, channel (api/gui/rabbitmq/scheduled), entry_handler (class + file:line)
+        
+        FL-5.2  EFFECTS: list what the flow does (end states)
+          Derive from incidents + domain shards + handler analysis:
+            - DB changes (status transitions, new rows)
+            - Outbound publishes (RabbitMQ queues)
+            - Cascading flow calls (related_flows)
+        
+        FL-5.3  CODE ANCHORS:
+          - sync_entry: the synchronous controller/service that performs the flow inline
+          - async_entry: the publisher class that hands off to async chain
+          - invariant_owner: the file where the core business rule lives (often the executor that respects the rule)
+        
+        FL-5.4  RELATED entities + flows:
+          - related_entities: union of entities touched by triggers + effects
+          - related_flows: flows whose effects this flow's triggers depend on, OR flows that consume this flow's effects
+        
+        FL-5.5  INVARIANTS:
+          - From domain/<entity>.yaml#invariants for each related entity → rule_ids
+        
+        FL-5.6  PAST INCIDENTS:
+          - Search incidents.yaml for tickets with similar_pattern_keywords matching the flow id/aliases
+          - List ticket IDs
+        
+        FL-5.7  HEALTH + KNOWN GATES:
+          - health: "ok" by default. Set to "degraded" if past_incidents has recurrence_risk=high entry, OR if a known_gate exists.
+          - known_gates: walk anchor handlers for these patterns:
+            - silent-overwrite: handler reassigns inbound value with stored value (e.g. `form.X = existing.X`)
+            - conditional-guard: publish/dispatch gated by an inferred condition (`if (...) publish(...)`)
+            - early-return: `if (input == null) return;` before reaching downstream
+            - missing-wire: handler defined but never registered in DI / never called
+          - If matched, write known_gate with id, description, location, related_ticket (if past incident matches)
+        
+        FL-5.8  COMPLEXITY:
+          - Compute from: number of triggers, number of related_flows, number of repos touched
+          - high: ≥4 triggers OR ≥3 related_flows OR ≥3 repos
+          - medium: ≥2 triggers OR ≥2 related_flows OR exactly 2 repos
+          - low: otherwise
+        
+        FL-5.9  WRITE flow entry to flow_index.yaml (incremental)
+
+FL-6  REBUILD INDEXES (at end of all flows)
+      indexes.by_keyword: map keyword (from flow id + aliases) → [flow_ids]
+      indexes.by_entity: map entity → [flow_ids it appears in]
+      indexes.by_health: { ok: [...], degraded: [...], broken: [...] }
+      indexes.high_complexity: [flow_ids with complexity == high]
+
+FL-7  WRITE _index.yaml update
+      artifacts.flows: { path, last_updated: now, fingerprint, status: fresh,
+                          flow_count: N, degraded_count: D, broken_count: B,
+                          required_by: [], optional_for: [6, 9] }
+
+FL-8  LIVE-SYNC + MARK DONE
+      doc-manager live-sync flows/flow_index.yaml edit|create
+      doc-manager live-sync flows/_concerns.yaml edit|create
+      scan_state.json.status = done
+
+FL-9  REPORT
+      Print summary:
+        - Flows registered: N (new: M, updated: U, unchanged: K)
+        - Health: <ok: A, degraded: B, broken: C>
+        - High complexity: H
+        - Known gates pre-recorded: G
+```
+
+### flow_index.yaml schema
+
+```yaml
+# Auto-generated by scan-init v2.x.x — flows sub-command
+# Last updated: <ISO>
+# Project: <name>
+# Total flows: <N>
+# Degraded: <D>  •  Broken: <B>
+
+flows:
+  rerouting:                              # flow id — kebab-case, business-named
+    description: "Cancel active OutTask under party A → create new OutTask under party B"
+    business_value: "Allow AO/PO to reassign in-flight work to a different solution party without losing context"
+    aliases: [reroute, change-solution-party]   # alternate names used in tickets
+
+    triggers:
+      - id: t1
+        description: "AO sends solutionParty change via 3rd-party API"
+        channel: api                       # api | gui | rabbitmq | scheduled
+        entry_handler:
+          class: ThirdPartyFormGetter
+          location: acme-api-task/.../ThirdPartyFormGetter.cs:105
+          repo: acme-api-task
+      - id: t2
+        description: "Portal user clicks 'Change Solution Party' button"
+        channel: gui
+        entry_handler:
+          class: TasksV2Controller.ChangeSolutionParty
+          location: acme-api-portal/.../TasksV2Controller.cs:127
+          repo: acme-api-portal
+      - id: t3
+        description: "Routing Rule admin config change triggers re-evaluation"
+        channel: scheduled
+        entry_handler:
+          class: TBD                       # known gap — anchor not yet identified
+          location: TBD
+
+    effects:
+      - "Active OutTask under old party transitions to TO_BE_CANCELLED (revision++)"
+      - "New OutTask created under new party in RECEIVED state"
+      - "RabbitMQ publish: SendInTaskToAO + SendOutTasksToContractor"
+
+    code_anchors:
+      sync_entry:
+        class: FlowController
+        location: acme-api-task/.../FlowController.cs:30
+      async_entry:
+        class: AssigneeSetter
+        location: acme-api-task/.../AssigneeSetter.cs:107
+        publishes_to: DwRoutingModel (queue)
+      invariant_owner:
+        class: TaskCreateExecutor
+        location: acme-api-task/.../TaskCreateExecutor.cs:51
+        rule_enforced: "task_solution_parties row present = AO-explicit, bypass routing"
+
+    related_entities: [ServiceTask, InTask, OutTask, OutTaskset]
+    related_flows:
+      - solution-party-assignment        # parent: just sets the field; rerouting is one of the effects
+      - dynamic-workflow                  # async pipeline that invokes rerouting via CreateChildTask
+      - contractor-routing                # downstream: new OutTask gets routed to contractor
+
+    invariants_respected:
+      - rule_id: IT-CREATE-1              # in_task.yaml
+        description: "task_solution_party row present = AO-explicit; row absent = re-route fresh"
+      - rule_id: OT-UNIQ-1                # out_task.yaml
+        description: "at_most_one_non_terminal_per_address_within_category"
+
+    past_incidents:
+      - id: PROJ-10869a
+        kind: revert
+        lesson: "Did not respect re-routing invariant → full revert"
+      - id: PROJ-10867
+        kind: lock-in
+        lesson: "Solution-party reassignment via 3rd-party API explicitly disabled at MapDataAsync — must carve out for explicit-field signal"
+
+    health: degraded                     # ok | degraded | broken
+    health_reason: "2 known gates block trigger t1 (3rd-party API) from reaching effect"
+
+    known_gates:
+      - id: kg-1
+        description: "MapDataAsync silently overwrites inbound SolutionPartyId with stored value (PROJ-10867 lock-in)"
+        mechanism: silent-overwrite
+        location: acme-api-task/.../ThirdPartyApiRouter.cs:315-356
+        blocks_trigger: t1
+        related_ticket: PROJ-10867
+        confidence: confirmed
+      - id: kg-2
+        description: "AssigneeSetter publish gated on isExistOutTask || shouldGenerateOuttask"
+        mechanism: conditional-guard
+        location: acme-api-task/.../AssigneeSetter.cs:107-119
+        blocks_trigger: t1
+        related_ticket: PROJ-10869
+        confidence: confirmed
+
+    complexity: high
+    complexity_reason: "3 triggers × 2 entry repos × 3 related_flows × async + sync paths"
+
+  indication_send_ao:
+    description: "..."
+    ...
+
+  three_way_sync:
+    description: "..."
+    ...
+
+# ───── INDEXES (rebuilt at end of every scan run) ─────
+indexes:
+  by_keyword:
+    rerouting: [rerouting]
+    reroute: [rerouting]
+    indication: [indication-send-ao, indication-send-co]
+    sync: [three-way-sync, ac-info-sync]
+
+  by_entity:
+    ServiceTask: [rerouting, contractor-assignment, dynamic-workflow]
+    InTask: [rerouting, indication-send-ao]
+    OutTask: [rerouting, contractor-assignment]
+
+  by_health:
+    ok: [contractor-assignment, dynamic-workflow]
+    degraded: [rerouting]
+    broken: []
+
+  high_complexity: [rerouting, three-way-sync, dynamic-workflow]
+
+# ───── SUMMARY (rebuilt at end of every scan run) ─────
+summary:
+  flows_registered: <N>
+  new_this_run: <M>
+  updated_this_run: <U>
+  health_distribution: { ok: A, degraded: B, broken: C }
+  complexity_distribution: { high: H, medium: M2, low: L }
+  total_known_gates: <G>
+```
+
+### Fingerprint
+
+```
+fingerprint = sha256(
+    {project_docs}/code/domain_index.yaml.fingerprint
+  + {project_docs}/domain/_index.yaml.fingerprint
+  + (topology.yaml.fingerprint if exists else "")
+  + (incidents.yaml.fingerprint if exists else "")
+)
+```
+
+Stale = upstream code, domain, topology, or incidents artifacts changed.
+
+### scan_state.json structure
+
+```json
+{
+  "status": "in_progress",
+  "started_at": "<ISO>",
+  "candidates_discovered": 18,
+  "user_confirmed": 12,
+  "user_skipped": 4,
+  "user_pending": 2,
+  "flows_done": ["rerouting", "indication-send-ao"],
+  "flows_pending": [...],
+  "extraction_errors": []
+}
+```
+
+### _concerns.yaml entries (specific to flows)
+
+Standard schema. Dominant types:
+
+**Template — flow anchor unverified**:
+```yaml
+- id: c-<n>
+  type: knowledge-gap
+  location: flows/flow_index.yaml#flows.<id>
+  description: "Flow <id> has trigger t<n> with entry_handler: TBD — DPS flow-trace will need to identify it at ticket time"
+  severity: low
+  confidence: confirmed
+  status: open
+```
+
+**Template — flow degraded by known gate**:
+```yaml
+- id: c-<n>
+  type: concern
+  location: flows/flow_index.yaml#flows.<id>.known_gates
+  description: "Flow <id> has known gate <kg-id> blocking trigger <t-id>. Any ticket that touches this trigger MUST address the gate (otherwise repeats PROJ-XXXXX pattern)."
+  severity: high
+  confidence: confirmed
+  status: open
+  related_tickets: [<from past_incidents>]
+```
+
+**Template — pattern across flows (≥3 share same gate mechanism)**:
+```yaml
+- id: c-<n>
+  type: concern
+  location: flows/flow_index.yaml
+  description: "<N> flows share mechanism 'silent-overwrite at inbound router' — likely a single architectural fix would resolve all"
+  severity: medium
+  confidence: likely
+  status: open
+  related_flows: [<list>]
+```
+
+### Edge cases & decisions
+
+| Case | Handling |
+|---|---|
+| domain artifact missing | Error + exit. Flow scan needs entity registry. |
+| topology missing | Run anyway; topology source becomes empty; rely on other 3 sources |
+| incidents missing | Run anyway; past_incidents stay empty; health defaults to ok unless other signals say otherwise |
+| User skips a candidate | Don't write to flow_index. Log to scan_state.user_skipped. Next run will re-propose. |
+| Flow has trigger with anchor=TBD | Allowed (degraded knowledge). Write a knowledge-gap concern. DPS will derive at ticket time. |
+| Two candidates dedupe to same id by accident | List both source_signals; user picks the canonical name. |
+| Flow with health=broken (currently doesn't work at all) | Allowed — useful for ticket-time gating to warn user up front. |
+
+### What scan-init flows must NEVER do
+
+- Auto-write a new flow without user confirmation (Tier 2 — flows are business-level, name matters)
+- Trace cascades deeper than 1 level around an anchor (that's DPS flow-trace's job)
+- Invent triggers — if anchor not found, write TBD + knowledge-gap concern
+- Modify code or domain files (read-only scan)
+- Default to "complexity: high" — compute from observable signals
 
 ---
 
@@ -1656,6 +2039,22 @@ V-4b Per-folder _concerns.yaml presence + integrity check
         If location stale → add to concerns_stale[] with concern.id
       Count open concerns by business_or_technical → concerns_summary
 
+V-4c Surface-layer checks (see `surface-layers.md` for full spec)
+  S1: every business shard has `features_summary:` covering ≥ 80% of `business_modules`
+  S2: `code/overloaded_terms.yaml` exists; every detected overload term is registered
+  S3: entities meeting subtypes-detection signal have `subtypes:` block (warn only)
+  S4: paired-section heuristic — section verb in {create, terminate, cancel, deliver, route, update, link, unlink} has a `See also:` block (warn only)
+  S5: ≥ 2-variant signal fires (same field name in ≥ 2 entries within one file, or ≥ 2 documented operations on the same entity with different roles/tokens/flows) but no side-by-side comparison artifact / cross-link found (warn)
+  S6: `domain/acronyms.yaml` exists; every short token appearing ≥ 2 times across shards is registered; same short MUST NOT have ≥ 2 distinct expansions across files (partial if it does)
+  S7: every `orphan_queue_no_consumer` / `orphan_queue_no_publisher` flag in `topology/topology.yaml` MUST have a `consumer_resolved:` / `publisher_resolved:` OR `consumer_unknown:` / `publisher_unknown:` companion block (fail if missing)
+  S8: every critical entity (signal: invariant documented in knowledge_*.md, OR appears in _relationships.yaml propagation, OR has ≥ 1 incident, OR has ≥ 1 RESOLVED DPS session targeting its lifecycle) MUST have a corresponding `domain/lifecycle_traces/<entity>.yaml` (warn if missing); FAIL if a RESOLVED DPS session targeting the entity exists but no lifecycle_trace has been promoted
+  C1: gateway shard (api-portal or equivalent) emits `gateway_contract:` block (warn if missing)
+  C2: every `code/domain_index_<service>.yaml` with ≥ 1 BackgroundService class has a top-level `background_workers:` section (warn if missing)
+  C3: `code/feature_flags_catalog.yaml` exists when ≥ 1 flag matching ^(Enable|Use|Disable|Feature)\w+$ is detected in any appsettings.json (partial if missing)
+  C4: every failure-mode section in knowledge_*.md has the 5 template fields (code/trigger/symptom/fix/by-design) (warn if missing)
+  Emit each S1/S2/S7 failure AND S8-resolved-dps-not-promoted failure into `surface_layer_violations[]`; S3/S4/S5/S6/S8-warn/C1/C2/C3/C4 into `surface_layer_warnings[]`.
+  Same-short-different-expansion under S6 emits to violations[] with severity `partial`.
+
 V-5  Phase readiness recompute
   Same logic as scan-init sub-commands — recompute phase_readiness for all phases.
 
@@ -1669,9 +2068,9 @@ V-6  Write verify-report.md
 
 | Result | Condition |
 |---|---|
-| `pass` | No fingerprint drift, coverage_pct ≥ 0.95, no legacy, no schema violations, every folder has `_concerns.yaml`, no stale concern locations |
-| `partial` | coverage_pct ≥ 0.80 OR only `low`-impact issues OR `_concerns.yaml` missing in ≤1 folder |
-| `fail` | coverage_pct < 0.80 OR legacy present OR schema violations exist OR `_concerns.yaml` missing in ≥2 folders |
+| `pass` | No fingerprint drift, coverage_pct ≥ 0.95, no legacy, no schema violations, every folder has `_concerns.yaml`, no stale concern locations, no surface-layer violations (S1/S2/S7/S8-resolved-dps in surface-layers.md), no S6 same-short-different-expansion |
+| `partial` | coverage_pct ≥ 0.80 OR only `low`-impact issues OR `_concerns.yaml` missing in ≤1 folder OR surface-layer warnings only (S3-S6, S8-warn, C1-C4) OR C3 catalog missing |
+| `fail` | coverage_pct < 0.80 OR legacy present OR schema violations exist OR `_concerns.yaml` missing in ≥2 folders OR surface-layer violations exist (S1/S2/S7/S8-resolved-dps) |
 
 Open entries in `_concerns.yaml` DO NOT cause `fail` on their own — they are expected output of a healthy scan. Stale `location` (pointing to deleted file or out-of-range line) DOES count toward `fail` (signals the scan is out of date).
 
@@ -1728,7 +2127,7 @@ Result: pass | partial | fail
 - agent-index/: <n> files → recommend migrate or delete
 
 ## Schema violations
-- domain/OrderEntity.yaml: missing field `lifecycle`
+- domain/TaskEntity.yaml: missing field `lifecycle`
 
 ## Concerns
 - Missing `_concerns.yaml`: code/, db/, domain/, build/, conventions/  (5 folders)
@@ -1808,10 +2207,10 @@ D-6  Print summary
 ### Output
 
 ```
-scan-drift check — baseline 2025-01-10T15:00:00 (8 days ago)
+scan-drift check — baseline 2026-05-13T15:00:00 (8 days ago)
 
-  drift-001  source_change  repo=myapp-api-service  12 files  medium
-             → scan-update code --repo myapp-api-service
+  drift-001  source_change  repo=acme-api-task  12 files  medium
+             → scan-update code --repo acme-api-task
 
   drift-002  skill_change   scan-init 2.0.0 → 2.1.0  high
              → scan-init all --force && scan-init verify --establish-baseline
@@ -1925,8 +2324,8 @@ scan-init all — complete
   domain:       ✓ 8 entities scaffolded, 3 skipped by user
   build:        ✓ 4 repos, 6 services, 3 test projects
   conventions:  ✓ git + ci + security written
-  incidents:    ✓ 48 tier-1 incidents extracted (5 skipped thin, 2 keyword patterns flagged)
-  topology:     ✓ 12 queues mapped (infra_coverage: full, 3 high-severity health_flags, 4 incident cross-links)
+  incidents:    ✓ 137 tier-1 incidents extracted (12 skipped thin, 4 keyword patterns flagged)
+  topology:     ✓ 23 queues mapped (infra_coverage: full, 5 high-severity health_flags, 8 incident cross-links)
 _index.yaml updated. phase_readiness recomputed.
 ```
 
@@ -2077,4 +2476,4 @@ signals:
 - Write `domain` entity files without user confirmation per entity (Tier 2)
 - Write or modify the `baseline:` block from any sub-command other than `scan-init verify --establish-baseline` or `scan-drift refresh-baseline`
 - Delete entries from `drift_since_baseline` — append-only. Change `status` to `processed`/`dismissed` instead. Archival happens only in `scan-drift refresh-baseline` step F-4.
-- Use placeholder strings (e.g. `sha256:placeholder-not-a-real-hash`) as fingerprints. Real fingerprints must be `sha256:<64-hex>` computed from sorted source file (relpath + mtime + size).
+- Use placeholder strings (e.g. `sha256:multi-repo-2026-05-13-delta`) as fingerprints. Real fingerprints must be `sha256:<64-hex>` computed from sorted source file (relpath + mtime + size).
