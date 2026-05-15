@@ -1,0 +1,182 @@
+# domain-problem-solver/failure-modes.yaml — known failure registry
+#
+# Symmetric to do-ticket/failure-modes.yaml. Each mode is a recognizable
+# failure pattern an investigation can hit, with auto-pivot recommendations
+# before falling back to Phase 5d Escalation.
+#
+# Convention: all DPS failure-mode IDs start with `DPS-FM-`.
+
+modes:
+
+  # ============================================================
+  # CLARIFICATION LOOP FAILURES
+  # ============================================================
+
+  - id: DPS-FM-CLARIFY-LOOP-STUCK
+    detect:
+      - "clarification rounds reached max_rounds (default 7) without satisfying any exit condition"
+      - "user gives 'I don't know' twice in a row to different questions"
+    severity: must-fix
+    pivots:
+      - id: drop-to-question-answer
+        when: "the topic could be a knowledge question rather than a bug"
+        action: "Switch strategy to question-answer. Answer with what's known, list assumptions."
+      - id: escalate-with-partial
+        action: "Phase 5d Escalation block. Document what was learned. Mark BLOCKED. Offer to resume when info available."
+        gate: G1
+
+  - id: DPS-FM-CONTRADICTION-UNRESOLVED
+    detect:
+      - "user provides answer A in round N, answer ¬A in round N+M, refuses to pick"
+    severity: must-fix
+    pivots:
+      - id: log-both-resolve-later
+        action: "Log both versions in investigation.log.md. Continue investigation conditioned on each. Surface both paths in output."
+      - id: escalate-to-stakeholder
+        when: "the contradiction is between user and their stakeholder"
+        action: "Suggest user check with PO / domain expert before proceeding."
+        gate: G1
+
+  # ============================================================
+  # DOMAIN KNOWLEDGE FAILURES
+  # ============================================================
+
+  - id: DPS-FM-NO-DOMAIN-MATCH
+    detect:
+      - "domain-mapping-protocol Tier 1-3 returns no match for entity referenced in problem"
+    severity: warn
+    pivots:
+      - id: flag-gap-continue
+        action: "Note 'entity not in domain index' as gap. Continue with explicit assumption tagged. Append entry to {project_docs}/scan-gap-signals.yaml: {source_skill: domain-problem-solver, source_session: <session_id>, artifact: code/domain_index.yaml, sub_command: code, gap_type: missing_entity, entity: <entity_name>, proposed_action: 'scan-update code', status: open}."
+      - id: ask-user-clarify-entity
+        action: "Ask: 'I don't see <entity> in the domain index. Is this a new concept, a typo, or a different name for something I do know?'"
+        gate: G1
+
+  - id: DPS-FM-NO-HYPOTHESIS-LEFT
+    detect:
+      - "all top-3 hypotheses falsified by their tests, backlog empty"
+    severity: must-fix
+    pivots:
+      - id: cross-entity-sweep
+        action: "Run domain-mapping-protocol Tier 4 (_relationships.yaml) to surface unconsidered cross-entity invariants → may yield new hypotheses"
+      - id: question-assumptions
+        action: "Re-examine the 'observed' facts. Often a falsified-everything state means a faulty observation. Ask user to re-verify the symptom."
+      - id: escalate-needs-source-access
+        action: "Investigation has exhausted domain knowledge. Phase 5d escalation: this requires source code or system logs."
+        gate: G1
+
+  # ============================================================
+  # CROSS-PROJECT FAILURES
+  # ============================================================
+
+  - id: DPS-FM-CROSS-PROJECT-MISSING-INDEX
+    detect:
+      - "cross-project signal detected; secondary project's domain index missing or unreadable"
+    severity: warn
+    pivots:
+      - id: continue-with-primary
+        action: "Continue investigation with primary project context. Note 'cross-project context unavailable' in session. Findings flagged as 'primary-only — secondary side unverified'. Append entry to {project_docs}/scan-gap-signals.yaml: {source_skill: domain-problem-solver, source_session: <session_id>, artifact: code/domain_index.yaml, sub_command: code, gap_type: missing_index, detail: 'secondary project <project_name> domain index missing', proposed_action: 'scan-init code for <project_name>', status: open}."
+      - id: ask-user-or-scan
+        action: "Ask user: '<secondary-project>'s domain index is missing. Should I run /scan-init for it, or proceed with what we have?'"
+        gate: G1
+
+  - id: DPS-FM-CROSS-PROJECT-CONTRADICTION
+    detect:
+      - "primary and secondary project domain indexes contradict each other on a shared concept"
+    severity: must-fix
+    pivots:
+      - id: surface-contradiction
+        action: "List both definitions. Flag as integration risk. Recommend a contract-clarification session with both teams. Don't pick a winner unilaterally."
+        gate: G1
+
+  # ============================================================
+  # WORKSPACE / INPUT FAILURES
+  # ============================================================
+
+  - id: DPS-FM-WORKSPACE-AMBIGUOUS
+    detect:
+      - "Phase 1 cannot resolve workspace from IDE context, user input, or session file"
+    severity: blocker
+    pivots:
+      - id: ask-once
+        action: "Ask: 'Which project? <list of known projects from agent-index/>'"
+        gate: G10
+
+  - id: DPS-FM-INPUT-TOO-VAGUE
+    detect:
+      - "input < 20 chars OR purely emotional ('it's broken', 'doesn't work', 'help')"
+    severity: must-fix
+    pivots:
+      - id: minimum-viable-clarification
+        action: "Ask 1 question: 'What were you doing when it broke?' — anchor on the trigger event"
+      - id: switch-to-cascading
+        action: "Switch strategy to cascading-investigation — decompose before deep dive"
+
+  # ============================================================
+  # SESSION CONTINUITY FAILURES
+  # ============================================================
+
+  - id: DPS-FM-RESUME-FILE-CORRUPTED
+    detect:
+      - "investigation.md or investigation.log.md exists but is malformed / unparseable"
+    severity: must-fix
+    pivots:
+      - id: rebuild-from-log
+        when: "investigation.log.md is intact"
+        action: "Reconstruct investigation.md summary from the log. Continue."
+      - id: ask-user-or-restart
+        action: "Ask: 'Session file is corrupted. Restart from scratch, or paste me the prior context?'"
+        gate: G1
+
+  - id: DPS-FM-SESSION-COLLISION
+    detect:
+      - "Phase 7 wants to write to topic-folder that exists with DIFFERENT investigation"
+    severity: warn
+    pivots:
+      - id: append-suffix
+        action: "Use folder name with -2, -3 suffix per Phase 7 collision protocol"
+
+  # ============================================================
+  # HANDOFF FAILURES
+  # ============================================================
+
+  - id: DPS-FM-HANDOFF-INCOMPLETE
+    detect:
+      - "Phase 6 says 'requires code change', user accepts handoff to do-ticket, but confirmed_facts is empty"
+    severity: must-fix
+    pivots:
+      - id: refuse-handoff
+        action: "Don't write empty handoff envelope. Phase 5d escalation instead — investigation isn't actually conclusive yet."
+
+  # ============================================================
+  # CONTEXT EXPANSION FAILURES (Phase 5a')
+  # ============================================================
+
+  - id: DPS-FM-CTX-EXPANSION-STALE
+    detect:
+      - "Phase 5a' tries to read incidents.yaml or topology.yaml but {project_docs}/_index.yaml shows status: stale"
+      - "Fingerprint of incidents.yaml or topology.yaml differs from stored fingerprint by >7 days"
+    severity: warn
+    pivots:
+      - id: offer-refresh
+        action: "Surface staleness: 'incidents.yaml is N days old (max 14). Refresh with scan-init incidents before forming hypotheses? (y/n)'. yes -> run scan-init refresh, then re-enter 5a'. no -> log to telemetry, proceed with stale data + caveat in context-expansion.md."
+      - id: skip-expansion
+        when: "user declined refresh OR both artifacts stale AND time-pressure detected"
+        action: "Skip 5a'. Log context_expansion: skipped-stale to telemetry. Proceed to 5b with domain-mapping context only."
+
+  - id: DPS-FM-RECURRENCE-NO-MATCH
+    detect:
+      - "All hypothesis seeds promoted from 5a' have been falsified during 5b loop"
+      - "No remaining seed has plausible match to clarification context"
+    severity: info
+    pivots:
+      - id: fall-back-domain-only
+        action: "Log 'recurrence-no-match' to telemetry as a false-positive signal for /learn. Re-enter 5b without seed priming - generate hypotheses from domain mapping + clarification answers only."
+      - id: signal-incident-data-drift
+        when: "matched incidents are >180 days old AND fix_layer all 'code' but current scope suggests infra"
+        action: "Note in investigation.log.md that the matched incidents may represent solved patterns. Suggest user verify whether the fixed code paths are still in place."
+
+# Auto-learn protocol:
+# After each DPS session, /learn scans investigation-telemetry.yaml across
+# sessions. Recurring unknown failure signature ≥3 times → propose new
+# DPS-FM-XX entry to this file. User confirms before adding.
