@@ -77,10 +77,11 @@ Phase keys reference do-ticket/SKILL.md. `*` = optional. `!` = type-specific gat
 
 ```
 branch → rebase-check → requirements → analyze → invariant-scope → test-cases → plan
-  → unit-tests → implement → regression → env-gate → api-test → commit
+  → fe-impact-check → unit-tests → implement → regression → env-gate → api-test → commit
   → pre-push → ci-check → invariant-encoded → qa-checklist → pr-ready → pr-review
-  → promote-knowledge
 ```
+
+`fe-impact-check` auto-skips when plan touches no FE-consumed endpoint.
 
 Risk profile baseline: medium. All standard gates apply.
 
@@ -91,7 +92,6 @@ Risk profile baseline: medium. All standard gates apply.
 ```
 branch → rebase-check → requirements (lite) → plan (lite) → unit-tests → implement
   → regression → commit → pre-push → ci-check → qa-checklist → pr-ready → pr-review
-  → promote-knowledge
 ```
 
 **Lite mode rules:**
@@ -107,12 +107,11 @@ branch → rebase-check → requirements (lite) → plan (lite) → unit-tests �
 
 ```
 branch → rebase-check → requirements → investigate (domain-problem-solver)
-  → analyze → test-cases → plan → unit-tests → implement → regression
+  → analyze → test-cases → plan → fe-impact-check → unit-tests → implement → regression
   → env-gate → api-test → commit → pre-push → ci-check → qa-checklist → pr-ready → pr-review
-  → promote-knowledge
 ```
 
-Adds an explicit `investigate` phase before analyze. Output: `investigation-findings.md`. Used when root cause is unknown at ticket creation time.
+Adds an explicit `investigate` phase before analyze. Output: `investigation-findings.md`. Used when root cause is unknown at ticket creation time. `fe-impact-check` auto-skips when plan touches no FE-consumed endpoint.
 
 ---
 
@@ -147,7 +146,6 @@ Risk profile: critical. Requires G3 confirmation before hotfix-deploy.
 ```
 branch → rebase-check → plan → behavior-diff-tests → implement → regression
   → commit → pre-push → ci-check → pr-ready → pr-review
-  → promote-knowledge
 ```
 
 - Skip: `requirements` (refactor goal is in ticket title), `analyze`, `qa-checklist` (no behavior change to QC).
@@ -185,7 +183,6 @@ branch → doc-edit → commit → pr-ready → pr-review
 ```
 branch → plan → migration-script → dry-run-test → implement (apply migration)
   → regression → pre-push (with G3) → commit → pr-ready → pr-review
-  → promote-knowledge
 ```
 
 - `plan` MUST include rollback script + data risk analysis.
@@ -203,7 +200,6 @@ Risk profile: critical. `migration-script` artifact lands in `public-project-doc
 branch → rebase-check → requirements → analyze → test-cases → plan → unit-tests (Jest)
   → storybook-stories → implement → e2e-smoke → regression → commit
   → pre-push → ci-check → qa-checklist → pr-ready → pr-review
-  → promote-knowledge
 ```
 
 - `unit-tests` = Jest/Karma component specs.
@@ -240,18 +236,18 @@ Demotions are **not allowed** mid-flow (would skip already-completed gates with 
 
 Used by Phase 2 step 5 to recompute `risk_profile` + `risk_factors` after any type change (auto-classify or user override).
 
-| Type | Risk baseline | risk_factors | Mandatory gates | Skipped gates | promote-knowledge |
-|------|---------------|--------------|-----------------|---------------|-------------------|
-| `crud-feature` | medium | [new-endpoint, db-change-possible, multi-layer] | all standard | none | runs |
-| `bugfix-small` | low | [targeted-fix, limited-surface] | secrets-scan, regression | analyze, qa-checklist gates | runs |
-| `bugfix-investigated` | medium | [unknown-root-cause, domain-deep-dive] | + investigate | none beyond bugfix-small | runs |
-| `bugfix-regression` | high | [working-broke, bisect-needed] | + regression-test-first | none | runs |
-| `hotfix` | critical | [prod-impact, time-pressure, minimal-test] | G3 deploy, secrets-scan | analyze, test-cases, qa-checklist | **skipped** (promote on root-cause ticket) |
-| `refactor` | medium | [behavior-preservation, test-coverage-required] | behavior-diff-locked | qa-checklist | runs (patterns often emerge) |
-| `spike` | low | [research-only, no-code-output] | none | implement, commit, pr | **skipped** (no code change) |
-| `doc-only` | low | [docs-only, no-logic-change] | secrets-scan | everything else | **skipped** (no code change) |
-| `migration-only` | critical | [schema-change, data-at-risk, rollback-required] | G3 migration, dry-run | qa-checklist, api-test | runs |
-| `fe-only` | medium | [ui-change, no-domain-change] | storybook + e2e-smoke | api-test, invariant | runs |
+| Type | Risk baseline | risk_factors | Mandatory gates | Skipped gates |
+|------|---------------|--------------|-----------------|---------------|
+| `crud-feature` | medium | [new-endpoint, db-change-possible, multi-layer] | all standard | none |
+| `bugfix-small` | low | [targeted-fix, limited-surface] | secrets-scan, regression | analyze, qa-checklist gates |
+| `bugfix-investigated` | medium | [unknown-root-cause, domain-deep-dive] | + investigate | none beyond bugfix-small |
+| `bugfix-regression` | high | [working-broke, bisect-needed] | + regression-test-first | none |
+| `hotfix` | critical | [prod-impact, time-pressure, minimal-test] | G3 deploy, secrets-scan | analyze, test-cases, qa-checklist |
+| `refactor` | medium | [behavior-preservation, test-coverage-required] | behavior-diff-locked | qa-checklist |
+| `spike` | low | [research-only, no-code-output] | none | implement, commit, pr |
+| `doc-only` | low | [docs-only, no-logic-change] | secrets-scan | everything else |
+| `migration-only` | critical | [schema-change, data-at-risk, rollback-required] | G3 migration, dry-run | qa-checklist, api-test |
+| `fe-only` | medium | [ui-change, no-domain-change] | storybook + e2e-smoke | api-test, invariant |
 
 ---
 
