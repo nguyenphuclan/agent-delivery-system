@@ -247,9 +247,9 @@ auto_induction:
 
 ### Vietnamese summary
 
-Khi user chưa đăng ký pattern (vì project mới hoặc quên), AI tự sample 3-5 file sibling để **suy luận pattern từ code thật**:
-- Nếu 4-5/5 file dùng cùng style → confidence cao → apply silent
-- Nếu 3/5 → apply nhưng flag trong review-priorities IMPORTANT
-- Nếu < 3 → không suy luận, fallback hiện trạng
+When no pattern is registered (new project or not yet set up), AI samples 3-5 sibling files to **infer the pattern from real code**:
+- If 4-5/5 files use the same style → high confidence → apply silently
+- If 3/5 → apply but flag in review-priorities as IMPORTANT
+- If < 3 → do not infer, fall back to current state
 
-Sau khi 1 pattern được induce nhiều lần → /learn đề xuất user promote vào registry. **Project mới không cần setup patterns thủ công — patterns tự lộ ra theo thời gian.**
+Once a pattern is induced repeatedly → /learn proposes promoting it to the registry. **New projects do not need manual pattern setup — patterns emerge from code over time.**
