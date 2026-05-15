@@ -3,8 +3,8 @@ name: promote-observations
 description: >
   Promotes entries from observations.md (temporary staging buffer) to permanent long-term storage
   in the correct skill SKILL.md or public-project-docs location. Use this skill whenever the user wants to
-  "promote observations", "graduate observations to long-term", "chuyển observations sang long-term",
-  "lưu observations vào skill", "bỏ kiến thức vào đúng chỗ", or calls /promote-observations.
+  "promote observations", "graduate observations to long-term", or calls /promote-observations.
+
   Never auto-triggered — only runs when explicitly requested.
 ---
 
