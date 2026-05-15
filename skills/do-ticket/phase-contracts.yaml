@@ -1,4 +1,4 @@
-﻿# phase-contracts.yaml — formal contracts for every do-ticket phase
+# phase-contracts.yaml — formal contracts for every do-ticket phase
 #
 # Replaces the static prerequisite table in do-ticket/SKILL.md.
 # do-ticket uses this to:
@@ -77,7 +77,7 @@ contracts:
       phase: requirements
     update_cycle: "On update_count > 0, write requirements-vN-diff.md and confirm with user"
 
-  analyze:                              # Phase 6 (sub-steps: 6a context-expansion → 6b analyze-requirements)
+  analyze:                              # Phase 6 (sub-steps: 6a context-expansion → 6b analyze-requirements → 6c flow-gate)
     skill: analyze-requirements
     strategy_registry: analyze-requirements/strategies.yaml
     readiness_gate: 6
@@ -92,21 +92,26 @@ contracts:
         - "{project_docs}/db/db_index.yaml (if status: fresh — column types, FK constraints, enums)"
         - "{project_docs}/incidents/incidents.yaml (if status: fresh — consumed in step 6a to filter past incidents matching ticket scope)"
         - "{project_docs}/topology/topology.yaml (if status: fresh — consumed in step 6a to surface relevant cross-repo queues + health flags)"
+        - "{project_docs}/flows/flow_index.yaml (if status: fresh — consumed in step 6c to detect business flows touched by this ticket and gate to DPS flow-trace before plan)"
     outputs:
       - "context-expansion.md (only if incidents.yaml OR topology.yaml exists AND not skipped per step 6a rules)"
       - "requirements-analysis.md (or behavior-spec.md for refactor strategy)"
-      - "ticket-context.yaml (+ domain_entities_in_scope, complexity_flags, context_expansion.*)"
+      - "ticket-context.yaml (+ domain_entities_in_scope, complexity_flags, context_expansion.*, flow_gate.*)"
+      - "dps-briefing.md (ONLY when step 6c gate fires AND user chooses 'route to DPS')"
     state_writes:
-      phase: analyze
+      phase: analyze                  # OR phase: awaiting_dps if 6c gate fires + user chose route
     blocks_on:
       - "open questions"
       - "dependent ticket not done (FM-DEPENDENT-TICKET-NOT-DONE)"
       - "physical impossibility"
       - "ambiguous shared term"
-    stale_check: "phase_readiness[6] — requires code artifact fresh"
+      - "flow-gate (6c) — user chose route-to-DPS → state: awaiting_dps; resume via do-ticket <ID> --from-dps=<session>"
+      - "flow-gate (6c) — user chose manual block → state: blocked"
+    stale_check: "phase_readiness[6] — requires code artifact fresh; flow gate degrades gracefully if flow_index.yaml missing"
     sub_steps:
       - "6a context-expansion (do-ticket internal): filter incidents/topology by ticket scope → write context-expansion.md. Skipped if both artifacts missing OR ticket_type ∈ {doc-only, hotfix} OR --from-dps mode. See do-ticket/SKILL.md Phase 6 step 6a for algorithm."
       - "6b analyze-requirements (skill invocation): runs as before, with context-expansion.md (if present) passed as pre-context hint alongside requirements.md."
+      - "6c flow-gate (do-ticket internal): read {project_docs}/flows/flow_index.yaml; match flow keywords + entity references from requirements + analysis against flow_index; if any matched flow has health != ok OR known_gates non-empty OR complexity == high → G10 prompt route/skip/block. Route → write dps-briefing.md + set state phase: awaiting_dps. Skip → inject warning into ctx.plan_warnings[] for implement-plan to surface. Skipped entirely if --from-dps mode (DPS already provided context), or if ticket_type ∈ {doc-only, hotfix, spike}, or if state.flow_gate_decided already true. See do-ticket/SKILL.md Phase 6 step 6c for full algorithm."
 
   invariant-scope:                      # Phase 7
     skill: invariant-check (--pre)
@@ -163,6 +168,8 @@ contracts:
         - "context-expansion.md (if produced by step 6a — read for past-incident lessons + relevant queue topology before forming the plan)"
         - "update-implement-vN.md (update mode)"
         - "invariants_in_scope.yaml"
+        - "ctx.flow_findings.* (when ticket resumed via --from-dps — flow_map per trigger path, gaps, decisions hydrated from DPS investigation-findings.md; primary input to plan when present)"
+        - "ctx.plan_warnings[] (when Phase 6c flow-gate was bypassed — risky flows + known gates + keyword hits that the plan must explicitly address or note as accepted risk)"
     outputs:
       - "plan.md"
       - "ticket-context.yaml (+ pattern_matches, resolved.touched_files, resolved.test_project_paths, fingerprints.plan_sha)"
@@ -176,6 +183,33 @@ contracts:
     lite_mode:
       when: "ticket_type ∈ {bugfix-small, hotfix}"
       output: "plan.md (≤1 page: file + method + 1-line description)"
+
+  fe-impact-check:                      # Phase 9.5 — lazy FE compatibility gate (post-plan)
+    readiness_gate: 9                   # piggybacks plan readiness; no separate scan-init dep
+    inputs:
+      required:
+        - "plan.md"
+        - "ticket-context.yaml"
+      optional:
+        - "{project_docs}/scan-api-docs/gateway_api_docs.yaml (for FE-consumed endpoint detection)"
+    preconditions:
+      skip_if: "ticket_type ∈ {fe-only, doc-only, hotfix, refactor, spike} OR plan changes no public API endpoint OR all affected endpoints are admin/internal (no FE caller)"
+    algorithm:
+      - "Extract affected_endpoints[] + proposed shape/cardinality/status-code changes from plan.md"
+      - "Quick FE-consumer check: grep FE repo for each endpoint URL → if none consumed → skip (write fe-impact-check.md with verdict SKIPPED, no callers)"
+      - "Otherwise spawn narrow Explore sub-agent with BE plan context (proposed shape, cardinality, status codes) + targeted FE grep scope (only affected endpoints)"
+      - "Sub-agent checks: FE response handling logic, current cardinality usage at call site, i18n keys needed for new error/status values, store/component coupling that would break"
+      - "Sub-agent returns: conflicts[] (file:line + nature) + verdict ∈ {SAFE, NEEDS_FE_CHANGE, NEEDS_BE_ADJUST}"
+      - "Write fe-impact-check.md to ticket folder"
+    outputs:
+      - "tickets/{ID}/fe-impact-check.md"
+    state_writes:
+      phase: fe-impact-check
+      fe_impact_decision: SAFE | NEEDS_FE_CHANGE | NEEDS_BE_ADJUST | SKIPPED
+    blocks_on:
+      - "NEEDS_BE_ADJUST → loop back to Phase 9 plan to reconcile (G1)"
+      - "NEEDS_FE_CHANGE → G1 surface to user: file follow-up FE ticket OR ack as known gap and continue"
+    stale_check: "no scan-init dependency — lazy scan at runtime, always fresh per ticket"
 
   unit-tests:                           # Phase 10
     skill: write-unit-tests
@@ -397,35 +431,6 @@ contracts:
     state_writes:
       phase: pr-review
     triggers_re_run: "Phases 5-13 re-run in update mode"
-
-  promote-knowledge:                    # Phase 22.5 — see promote-knowledge.md for full spec
-    skill: promote-observations (extended)
-    inputs:
-      required:
-        - "implement-summary.md"
-        - "plan.md"
-        - "requirements-analysis.md"
-        - "git diff of merge commit"
-        - "~/.claude/skills/assistant/observations.md"
-        - "{project_docs}/_index.yaml"
-        - "{project_docs}/domain/_index.yaml"
-        - "{project_docs}/INDEX.md"
-      optional:
-        - "invariants_encoded.yaml"
-    outputs:
-      - "promoted.md"
-      - "Updates to {project_docs}/domain/, concepts/, patterns/, runbooks/, _quickref.yaml, INDEX.md"
-      - "_index.yaml fingerprint refresh"
-      - "ticket-context.yaml (+ promoted_count, new_files_created[])"
-    state_writes:
-      phase: promote-knowledge
-    user_gate:
-      "Show detection table → wait for approve / skip / reclassify / merge / rename"
-    skip_when:
-      - "ticket_type ∈ {doc-only, spike, hotfix}"
-      - "user opted out via --no-promote flag"
-    failure_modes: [FM-PROMOTE-DUP-CONFLICT, FM-PROMOTE-FINGERPRINT-DRIFT, FM-PROMOTE-INDEX-WRITE-FAIL, FM-PROMOTE-NO-ENTITY, FM-PROMOTE-OVER-EAGER]
-    hard_stops_on: [FM-PROMOTE-INDEX-WRITE-FAIL]
 
   done:                                 # Phase 23
     skill: do-ticket internal
