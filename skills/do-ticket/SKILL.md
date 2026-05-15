@@ -60,11 +60,13 @@ Examples:
 - `do-ticket PROJECT-1234 pr-review` — handle reviewer comments
 - `do-ticket PROJECT-1234 --worktree` — parallel worktree stack
 - `do-ticket PROJECT-1234 --type=hotfix` — explicit type override (skip auto-classification)
-- `do-ticket PROJECT-1234 --from-dps=payment-timeout-bug-2025-01-10` — DPS handoff mode: skip classify + requirements + analyze; hydrate context from `investigation-findings.md` in the given session folder
+- `do-ticket PROJECT-1234 --from-dps=terminate-603-bug-2026-05-02` — DPS handoff mode: skip classify + requirements + analyze; hydrate context from `investigation-findings.md` in the given session folder
 - `do-ticket PROJECT-1234 --speed-mode` — vague PO + hard deadline. Activates `_shared/self-detailing-requirements-protocol.md`: AI fills ambiguities with sourced defaults, surfaces only `needs_po` items (1-3), bulk-accept the rest. PR description auto-includes "AI-Decided Defaults" audit. Total user time at analyze ≈ 2 min.
 - `do-ticket PROJECT-1234 show-context` — print ticket-context.yaml for debugging
 
 **Auto speed-mode:** If `analyze-requirements` scores requirement clarity < 60/100 (vague verbs, no AC, "miễn chạy là dc" signals), AI proposes activating self-detailing automatically. User can accept or override.
+
+**Flow gate auto-routing:** Phase 6c (after analyze) checks `{project_docs}/flows/flow_index.yaml` for business flows touched by this ticket (matched by flow keywords + entity references). If a touched flow has `health != ok` OR `known_gates[]` → offers proactive DPS routing BEFORE plan (see Phase 6 step 6c). Replaces the old "wait for FM-3X-SAME-ROOT during implement" recovery pattern.
 
 **Worktree trigger detection:** also activate `--worktree` when user says "worktree riêng", "song song", "parallel", "isolated stack".
 
@@ -89,7 +91,7 @@ Two files. State = workflow position. Context = resolved facts.
 ### `ticket-state.yaml`
 ```yaml
 ticket_id: PROJECT-1234
-phase: implement              # last completed phase (or "blocked")
+phase: implement              # last completed phase (or "blocked" or "awaiting_dps")
 phase_before_block: null
 pr_count: 0
 update_count: 0
@@ -98,8 +100,11 @@ blocked_reason: null
 worktree_path: null
 worktree_mode: false
 worktree_offset: null         # +100, +200, etc. — auto-allocated by worktree-setup
-worktree_paths: {}            # service-keyed map: { shared_lib, api_service, api_admin, identity, frontend, ... } — keys match projects.yaml repos
+worktree_paths: {}            # service-keyed map: { identity_provider, third_party_mock, api_task, sla, connector, scheduler, api_portal, automation, shared_lib }
 worktree_ports: {}            # service-keyed map (same keys as worktree_paths minus shared_lib): effective port = main_port + offset
+# Flow-gate (Phase 6c) state — written when gate fires:
+dps_briefing_path: null       # abs path to dps-briefing.md (when phase = awaiting_dps)
+flow_gate_decided: false      # true once user has chosen route/skip/block on this run
 last_updated: 2026-04-12T10:00:00
 ```
 
@@ -130,7 +135,7 @@ Reading order = execution order. The numbers below are the **canonical sequence 
 | # | Phase | Skill |
 |---|-------|-------|
 | 5 | `requirements` | jira-to-requirements |
-| 6 | `analyze` | analyze-requirements |
+| 6 | `analyze` | analyze-requirements (sub-steps: 6a context-expansion → 6b analyze → 6c flow-gate) |
 | 7 | `invariant-scope` | invariant-check (--pre) |
 | 8 | `test-cases` | write-test-cases |
 | 9 | `plan` | implement-plan |
@@ -167,9 +172,12 @@ When this file references "phase N" it means the table above. When it references
    - If `ticket-context.yaml` exists but **fails to parse** (malformed YAML) → warn: *"ticket-context.yaml is corrupt. Recreate from state? (y/n)"* → yes: delete and go to step 3 backfill; no: abort.
 2. Branch on state:
    - **No state** → fresh start → Phase 1.
-   - **State exists, no phase arg, `phase != blocked`** → resume from next uncompleted phase.
+   - **State exists, no phase arg, `phase != blocked` AND `phase != awaiting_dps`** → resume from next uncompleted phase.
    - **State exists, phase arg given** → validate prerequisites via `phase-contracts.yaml`. If any required input missing → FM-PREREQ-MISSING → offer earliest entry point.
    - **`phase == blocked`** → show `blocked_reason`, ask: *"Resolved? (y/n)"* → yes resume `phase_before_block` / no stop.
+   - **`phase == awaiting_dps`** (set by Phase 6c lifecycle-gate) → check if `--from-dps=<session>` flag present in invocation:
+     - yes → load findings, set `phase: analyze` (marked complete), advance to Phase 7 with lifecycle_findings hydrated.
+     - no → show `state.dps_briefing_path` + remind user of the DPS invocation command, then exit (do not silently proceed).
 3. **DPS handoff detection (fresh start only):** if `--from-dps=<session>` passed:
    - Resolve session folder: `{output}/domain-problem-solver/open/<session>/` or `closed/<session>/`
    - If folder missing → error: *"DPS session `<session>` not found. Provide full folder name or omit `--from-dps`."*
@@ -346,7 +354,7 @@ adhoc_phases:
     inserted_during: plan
     inserted_at_step: "validating field name on GET /tasks/<id>"
     reason: "Plan assumed field 'completionDate' but API may use 'finishedAt'"
-    started: 2025-01-10T11:00:00
+    started: 2026-05-02T11:00:00
     duration_seconds: 90
     outcome: "Field is 'finishedAt'. Plan corrected before write."
     affected_phase_outputs: [plan.md]
@@ -454,8 +462,8 @@ EXP-1  Read ticket-context.yaml + requirements.md
          - components: from jira.components
          - keywords_from_title: lowercase words ≥4 chars from ticket title (skip stopwords)
          - keywords_from_desc: lowercase words ≥4 chars from requirements.md
-         - mentioned_classes: ProperCase identifiers in title+description (e.g. "OrderSyncPassiveEndpointJob")
-         - mentioned_queues: UPPER_SNAKE_CASE tokens (e.g. "ORDER_SYNC_JOB")
+         - mentioned_classes: ProperCase identifiers in title+description (e.g. "SyncAcPassiveEndpointJob")
+         - mentioned_queues: UPPER_SNAKE_CASE tokens (e.g. "SYNC_AC_INFO_JOB")
          - mentioned_repos: any token matching ctx.resolved.repos values
 
 EXP-2  Read {project_docs}/incidents/incidents.yaml (if status=fresh in _index.yaml)
@@ -572,6 +580,178 @@ Open questions → G1 block. Save `phase_before_block: analyze`. Resume re-runs 
 
 **Speed-mode activation:** if analyze returns clarity score < 60 and user accepts speed-mode → set `speed_mode: true` in `ticket-context.yaml`. Pass `--speed-mode` flag to all downstream phases (8, 9, 10, 11). If user rejects → G1 block for clarification before proceeding.
 
+---
+
+**Step 6c — Flow gate (proactive DPS routing)**
+
+Runs after 6b succeeds, before Phase 7. Goal: detect tickets that touch business flows with known complexity or recorded gates, and route to DPS for a `flow-trace` BEFORE plan, instead of waiting for FM-3X-SAME-ROOT recovery during implement (which is what burned PROJ-10869a).
+
+**Why flow-gate, not field-gate:** developers think in flows (rerouting, indication, sync), not in fields. A ticket usually touches ONE flow that may be triggered by N fields, not the other way around. flow_index is the right granularity — ~10-30 flows per project rather than 100s of fields. Field-level cascade is already implicit in code shards + topology; flow_index adds the unit-of-business view that's missing.
+
+**Skip conditions (do not gate, proceed to Phase 7):**
+- `--from-dps` mode → DPS already provided full context.
+- `--from-briefing` mode → this run was itself spawned by a prior gate; do not re-gate.
+- `ticket_type ∈ {doc-only, hotfix, spike}` → not enough surface area for cascade to matter.
+- `state.flow_gate_decided == true` → user already decided on a prior run (don't re-prompt on resume).
+
+**Algorithm:**
+
+```
+FG-1  LOAD: read {project_docs}/flows/flow_index.yaml (if exists)
+      If missing → set ctx.flow_gate = "not_available" → skip to FG-4 (keyword-only fallback)
+
+FG-2  FLOW MATCH: extract candidate tokens from requirements.md + requirements-analysis.md
+      Lowercase ≥4-char tokens + UPPER_SNAKE_CASE tokens
+      Match against flow_index.indexes.by_keyword AND flow_index.indexes.by_entity (when
+      entity names appear).
+      Also match flow names directly (e.g. "rerouting" → flow_index.flows.rerouting).
+
+      touched_flows[] = unique set of matched flow ids
+      For each touched_flow:
+        Pull flow_index.flows.<id> record into scope.
+
+FG-3  RISK ASSESSMENT per touched flow:
+       For each touched_flow:
+         If flow.health != "ok" (i.e. "degraded" or "broken") → add to risky_flows[] with reason
+         If flow.complexity == "high" → add to risky_flows[]
+         If flow.known_gates[] non-empty → add to risky_flows[] + carry forward gates for briefing
+
+FG-4  KEYWORD SIGNAL fallback (no flow_index OR no flow match):
+        grep requirements.md + requirements-analysis.md for any of:
+          [update, trigger, connect, reroute, cascade, also fires, propagate,
+           change triggers, flow doesn't trigger, when X changes Y should]
+        If hit → set flow_keyword_signal = true (record matched phrases)
+
+FG-5  DECIDE: gate fires IF (risky_flows non-empty) OR
+                            (flow_keyword_signal AND ticket_type != bugfix-small AND ctx.flow_gate == "not_available")
+
+      If gate does NOT fire → set ctx.flow_gate_decided = true, ctx.flow_gate = "passthrough"
+        → log to telemetry: { gate: passthrough, touched_flows: [...], reason: <none risky> }
+        → proceed to Phase 7
+
+      If gate fires → continue to FG-6.
+
+FG-6  SURFACE G10:
+      Print:
+        ⚠ Flow-gate fires for <TICKET_ID>:
+          Touched flows (any): <list of flow names + one-line description each>
+          Risky flows: <list with reason — health=degraded / has known_gates / complexity=high>
+          Known gates pre-recorded: <list, or "none">
+          Keyword signals: <matched phrases, or "none">
+          Reason: <one sentence — e.g. "rerouting has 2 known gates blocking the 3rd-party API trigger path">
+
+        Recommended: route to DPS for flow-trace BEFORE plan. DPS will:
+          - Anchor on each entry handler of the flow (from flow_index + code shards)
+          - Trace each TRIGGER PATH end-to-end (NOT per field)
+          - Gap-analyze: which trigger paths silently drop the signal?
+          - Recommend implementation options per gap
+          do-ticket will then resume at plan with full flow context.
+
+        Choose:
+          a) Route to DPS (recommended)
+          b) Skip — proceed to Phase 7 with plain context (logged as flow_gate_bypassed)
+          c) Block — I want to investigate manually first (set phase: blocked)
+
+FG-7  ON CHOICE a — Route to DPS:
+        Write {ticket_dir}/dps-briefing.md per template below.
+        Set state:
+          phase: awaiting_dps
+          phase_before_block: analyze
+          dps_briefing_path: <abs path>
+          flow_gate_decided: true
+          flow_gate: routed_to_dps
+        Print the exact invocation command:
+          /domain-problem-solver --from-briefing=<abs path>
+          (when DPS finishes, resume do-ticket via: do-ticket <TICKET_ID> --from-dps=<session-folder>)
+        Halt.
+
+FG-8  ON CHOICE b — Skip:
+        Set ctx.flow_gate = "bypassed"
+        Set ctx.flow_gate_decided = true
+        Inject risky_flows + known_gates + keyword_signals as a WARNING block into plan context
+          (saved to ctx.plan_warnings[] — implement-plan will surface them)
+        Log to run-telemetry: { gate: bypassed, risky_flows: [...], reason: <user choice> }
+        Proceed to Phase 7.
+
+FG-9  ON CHOICE c — Block:
+        Set state.phase: blocked, blocked_reason: "user requested manual flow investigation"
+        Halt.
+```
+
+**`dps-briefing.md` template** (written at FG-7):
+
+```markdown
+# DPS Briefing — <TICKET_ID>
+
+Generated by do-ticket Phase 6c flow-gate at <ISO>.
+
+## Source ticket
+<TICKET_ID> — <ticket title from requirements.md>
+Source repos in scope: <from ticket-context.resolved.repos>
+
+## Ticket summary
+<first 5 lines of requirements.md>
+
+## Flows in scope
+<For each flow in risky_flows + touched_flows:>
+### <flow_name> — <flow.description>
+- Health: <ok | degraded | broken>
+- Complexity: <low | medium | high>
+- Triggers (from flow_index):
+  - <trigger.id>: <description> (channel: <api|gui|rabbitmq|scheduled>, entry: <handler at file:line>)
+  - ...
+- Expected effects:
+  - <effect 1>
+  - <effect 2>
+- Anchor handlers:
+  - sync_entry: <from flow_index>
+  - async_entry: <from flow_index>
+  - invariant_owner: <from flow_index>
+- Related entities: <list>
+- Related flows: <list>
+- Invariants respected: <list of rule_ids>
+- Past incidents: <list of ticket ids>
+- Known gates (pre-recorded blockers):
+  - <kg.id>: <description> at <location>
+
+## Keyword signals (from requirements text)
+<List matched phrases — or "none">
+
+## Past incidents to consider
+<Copy from {ticket_dir}/context-expansion.md if present — entities + queues + high-recurrence overlap>
+
+## Investigation goal
+For EACH flow in scope, trace EACH TRIGGER PATH end-to-end:
+1. From entry handler → cascade → final effect
+2. Does each trigger actually REACH the flow's expected effect? Or is there a silent drop?
+3. For each drop, what mechanism (silent-overwrite / conditional-guard / early-return / wrong-branch / missing-wire)?
+4. Compare against ticket's new requirements — which trigger paths need to be wired/fixed?
+
+## Specific decision questions (from analyze Phase 6b open items + known gates)
+<bullets from ticket-context.open_questions + each known_gate.description, if any>
+
+## Return format
+Produce `investigation-findings.md` with:
+- standard sections (Title, Confirmed, Open assumptions, ...)
+- FLOW EXTENSION sections (flow_map per trigger path, Gap Analysis table, Decisions per gap)
+- final_status: RESOLVED + suggested_implement_strategy
+
+When DPS finishes, the user resumes this ticket via:
+  do-ticket <TICKET_ID> --from-dps=<session-folder>
+do-ticket will skip classify/requirements/analyze and enter plan with the full flow map
+seeded into plan.md.
+
+## Hard constraints
+- Do not write code.
+- Do not propose an option that conflicts with a flow invariant (flow_index.flows.<name>.invariants_respected) or a domain invariant in {project_docs}/domain/<Entity>.yaml. DPS-FM-FLOW-INVARIANT-CONFLICT applies.
+- Cite each anchor handler with file:line.
+- Trace BY TRIGGER PATH, not by field cascade. The question is "does this trigger reach the effect?", not "what does this field do?"
+```
+
+**Why 6c is between analyze and Phase 7 (not after plan):** the flow map informs WHAT to plan. After-plan routing means re-doing the plan once DPS returns. Before-plan routing means plan is written ONCE, with full flow context.
+
+**Resume from `phase: awaiting_dps`:** when user invokes `do-ticket <TICKET_ID> --from-dps=<session>`, Phase 0 detects the flag, loads findings (including new flow_map + gaps + decisions), advances state to `phase: analyze` (marked complete), proceeds to Phase 7. The plan phase reads `ctx.flow_findings.*` as primary input alongside `requirements-analysis.md`.
+
 ### Phase 7 — `invariant-scope`
 Skipped when `ticket_type ∈ {doc-only, hotfix, refactor}` or no entity has a domain shard.
 
@@ -600,6 +780,29 @@ Decision tree:
 | User passes `do-ticket <ID> plan` (force-restart from plan) | Always show full plan for review (manual override) |
 
 Goal: stop interrupting user when nothing's worth interrupting for. Surface only what matters.
+
+### Phase 9.5 — `fe-impact-check`
+
+Lazy FE compatibility check using the just-written plan as scope. Catches FE-BE contract drift, cardinality mismatches, and missing i18n BEFORE implement — the place mid-implementation surprises usually surface.
+
+**Skip if:** `ticket_type ∈ {fe-only, doc-only, hotfix, refactor, spike}` OR plan touches no public API endpoint OR all affected endpoints are admin/internal (no FE caller).
+
+**Algorithm:**
+1. Extract `affected_endpoints[]` + proposed response shape / cardinality / status codes from `plan.md`.
+2. Quick FE-consumer probe: grep FE repo for each endpoint URL. None consumed → write `fe-impact-check.md` with verdict `SKIPPED` and continue.
+3. Otherwise spawn a narrow Explore sub-agent. Prompt carries the BE plan context (proposed shape, cardinality, status codes) + targeted FE grep scope (only the affected endpoints). Sub-agent reports conflicts (file:line + nature) and a verdict.
+
+**Verdict gate:**
+
+| Verdict | Action |
+|---------|--------|
+| `SAFE` | Continue to Phase 10. |
+| `NEEDS_FE_CHANGE` | G1 surface to user: file follow-up FE ticket OR ack as known gap and continue. |
+| `NEEDS_BE_ADJUST` | Loop back to Phase 9 `plan` to reconcile. |
+
+**Output:** `tickets/{ID}/fe-impact-check.md` (small, ticket-scoped — NOT a scan-init artifact).
+
+**Rationale:** Pre-scanning FE module structure is low-ROI for BE engineers. The only FE knowledge a BE engineer actually needs is contract compatibility per touched endpoint — and that is cheapest to derive at plan-time, scoped by the actual BE proposal, with always-fresh greps. Slip files pre-built into scan-init would go stale; an upfront full FE scan would over-collect FE wizard/i18n/state detail that the BE engineer never uses.
 
 ### Phase 10 — `unit-tests`
 - Build must compile. False-green tests resolved before proceed (FM-FALSE-GREEN-TEST).
@@ -847,4 +1050,6 @@ Every phase write appends to `{output}/tickets/<TICKET_ID>/run-telemetry.yaml`. 
 ## Known Gotchas
 
 - **Large test file reads:** never `Read` full test files. Grep for signatures first, then targeted `Read` with offset/limit. Files >10000 tokens fail and waste a retry. *(2026-04-14)*
-- **Frontmatter drift:** child skill frontmatters use varied formats (some quoted, some block-scalar). Phase contracts live in `phase-contracts.yaml`, not in child frontmatters, to avoid maintenance drift. - **Long sessions need RESUME.md:** when a ticket spans multiple sessions (or session approaches context limits), write a comprehensive `RESUME.md` to the ticket folder capturing the **audit trail of design decisions** — not just status. Without it, next-session-Claude has to re-derive every choice. `ticket-state.yaml` captures workflow position; `RESUME.md` captures *why this design*. - **Local DB queries via MCP `postgres-local` are valuable for design.** During analyze/plan phases, fetching live config rows (e.g. existing dynamic rule JSON) instantly resolves design questions that would take much longer to derive from code alone. Use sparingly (READ-ONLY, LIMIT 10) but don't shy away from a targeted query. 
+- **Frontmatter drift:** child skill frontmatters use varied formats (some quoted, some block-scalar). Phase contracts live in `phase-contracts.yaml`, not in child frontmatters, to avoid maintenance drift. *(2026-05-02)*
+- **Long sessions need RESUME.md:** when a ticket spans multiple sessions (or session approaches context limits), write a comprehensive `RESUME.md` to the ticket folder capturing the **audit trail of design decisions** — not just status. Without it, next-session-Claude has to re-derive every choice. `ticket-state.yaml` captures workflow position; `RESUME.md` captures *why this design*. *(2026-05-05)*
+- **Local DB queries via MCP `postgres-local` are valuable for design.** During analyze/plan phases, fetching live config rows (e.g. existing dynamic rule JSON) instantly resolves design questions that would take much longer to derive from code alone. Use sparingly (READ-ONLY, LIMIT 10) but don't shy away from a targeted query. *(2026-05-05)*
