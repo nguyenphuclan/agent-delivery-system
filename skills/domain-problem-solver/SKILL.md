@@ -48,14 +48,29 @@ Symmetric to do-ticket post-refactor:
 ## Triggers
 
 ```
-/domain-problem-solver                         → smart start (menu OR direct based on input)
-/domain-problem-solver <inline problem>        → skip menu, go to Phase 1
-/domain-problem-solver --quick <input>         → quick strategy (no clarification, no session files)
-/domain-problem-solver resume <filename>       → Mode B
-/domain-problem-solver close                   → Mode C
-/domain-problem-solver list                    → Mode D
-/domain-problem-solver --strategy=<id> <input> → explicit strategy override
+/domain-problem-solver                              → smart start (menu OR direct based on input)
+/domain-problem-solver <inline problem>             → skip menu, go to Phase 1
+/domain-problem-solver --quick <input>              → quick strategy (no clarification, no session files)
+/domain-problem-solver --from-briefing=<path>       → flow-trace mode (do-ticket Phase 6c handoff)
+/domain-problem-solver resume <filename>            → Mode B
+/domain-problem-solver close                        → Mode C
+/domain-problem-solver list                         → Mode D
+/domain-problem-solver --strategy=<id> <input>      → explicit strategy override
 ```
+
+### `--from-briefing` mode (do-ticket Phase 6c handoff)
+
+When invoked with `--from-briefing=<path>`:
+1. Resolve `<path>` (absolute, or relative to current ticket dir).
+2. Load file. Must be a valid `dps-briefing.md` (header `# DPS Briefing — <TICKET_ID>`).
+3. Skip Phase 1 ambiguous-workspace check — workspace comes from briefing's `ticket_id` → projects.md `active`.
+4. Skip Phase 3 input classification — `flow-trace` strategy is pre-selected.
+5. Skip Phase 4 clarification (one round only if briefing has explicit `clarify_first:` flags).
+6. Phase 5a → 5a' → run `flow-trace` flow (FT-1 through FT-8 per `strategies.yaml`).
+7. Phase 6 output: must produce `investigation-findings.md` with `flow_map` section (per trigger path of each in-scope flow), `gap_analysis`, and per-gap `decisions[]`. Cite source ticket: `dps_invoked_by_ticket: <TICKET_ID>`.
+8. Tell user the exact do-ticket resume command (already in standard handoff block).
+
+If briefing missing required fields → DPS-FM-BRIEFING-INCOMPLETE → escalate to user.
 
 If no input and no command: show menu, wait for choice.
 
@@ -246,8 +261,8 @@ EXP-1  Build scope vector from clarification answers + user's original problem:
          - components: project-specific component names mentioned (e.g. Service, Fulfillment)
          - keywords_from_problem: lowercase ≥4-char tokens from problem statement
          - keywords_from_clarification: lowercase ≥4-char tokens from all clarification answers
-         - mentioned_classes: ProperCase identifiers in problem + answers (e.g. "OrderSyncJobQueueFlow")
-         - mentioned_queues: UPPER_SNAKE_CASE tokens (e.g. "ORDER_SYNC_JOB", "Notification")
+         - mentioned_classes: ProperCase identifiers in problem + answers (e.g. "SyncAcInfoJobQueueFlow")
+         - mentioned_queues: UPPER_SNAKE_CASE tokens (e.g. "SYNC_AC_INFO_JOB", "Notification")
          - mentioned_entities: from cached_entities in 5a Domain Mapping result
          - mentioned_repos: any token matching {project_docs}/code/domain_index.yaml services map
 
@@ -360,7 +375,7 @@ context, note rejection rationale in investigation.log.md.
 **Priming from 5a' (when context-expansion.md exists):**
 - The "Hypothesis seeds" section of context-expansion.md is the FIRST input. Promote any seed that survives clarification context into a candidate hypothesis.
 - "Strong recurrence signals" auto-rank near top of generated list (recurrence is strong prior).
-- Each promoted seed-hypothesis MUST cite the source incident ID in its rationale: `<root cause hypothesis> (matches TICKET-XXXXX recurrence pattern)`.
+- Each promoted seed-hypothesis MUST cite the source incident ID in its rationale: `<root cause hypothesis> (matches PROJ-XXXXX recurrence pattern)`.
 - Health flags from topology with severity=high on matched queues → auto-candidate hypothesis: e.g. "queue Notification has auto-ack + high prefetch (c-101) → consumer pod restart drops in-flight messages".
 
 Surface ranked hypotheses with falsification tests. After user runs a falsification → loop back, narrow.
@@ -509,7 +524,7 @@ ticket-draft.md and investigation-findings.md written to:
 Next steps:
   1. Copy ticket-draft.md into Jira → get TICKET_ID
   2. Run: do-ticket <TICKET_ID> --from-dps=<session-folder-name>
-     (folder name only, not full path — e.g. payment-timeout-bug-2025-01-10)
+     (folder name only, not full path — e.g. terminate-603-bug-2026-05-02)
 
 do-ticket will skip classify, requirements, and analyze phases.
 It will carry forward: entities, risk, open assumptions, and suggested strategy.
@@ -615,6 +630,7 @@ Per `investigation-findings-schema.md`. Generated at Phase 6 when user accepts h
 | `investigation-driven-by-hypothesis` | user has a theory | test theirs, verdict + evidence |
 | `cascading-investigation` | vague high-level | decompose first, then switch to specific strategy |
 | `quick` | --quick flag | direct answer, no session files |
+| `flow-trace` | `--from-briefing` flag, or "rerouting", "indication", "sync", "why doesn't X fire", "connect flow A to flow B" | flow_map per trigger path of each in-scope flow + gap analysis (which trigger path silently drops the signal) + per-gap decisions. Output consumed by do-ticket plan phase via `--from-dps`. |
 
 Full registry: `strategies.yaml`. Selection rules: `strategies.yaml.selection_rules`.
 
@@ -637,6 +653,9 @@ Full registry: `failure-modes.yaml`.
 | Handoff with empty confirmed_facts | DPS-FM-HANDOFF-INCOMPLETE | refuse handoff, escalate |
 | Context-expansion artifacts stale (fingerprint drift in incidents/topology) | DPS-FM-CTX-EXPANSION-STALE | re-run scan-init incidents and/or topology, then re-enter 5a' |
 | All hypothesis seeds from 5a' falsified | DPS-FM-RECURRENCE-NO-MATCH | log "false positive from incidents"; fall back to domain-only hypothesis generation |
+| `--from-briefing` path missing or briefing lacks required header / fields | DPS-FM-BRIEFING-INCOMPLETE | escalate: ask user to regenerate briefing from do-ticket Phase 6c |
+| `flow-trace` FT-2 anchor not found for any trigger path of the target flow | DPS-FM-FLOW-NO-ANCHOR | one ad-hoc grep round; if still missing → escalate with explicit "flow entry handler not in flow_index or code/domain_index" gap report |
+| `flow-trace` recommends an option that conflicts with a flow invariant (`flow_index.flows.<name>.invariants_respected`) or a domain invariant in `{project_docs}/domain/<Entity>.yaml` | DPS-FM-FLOW-INVARIANT-CONFLICT | drop that option; if no other option survives → escalate to user with the invariant cite |
 
 Unmatched failure → log to `investigation-telemetry.unknown_failures[]` → /learn proposes new entry after recurrence ≥3.
 
