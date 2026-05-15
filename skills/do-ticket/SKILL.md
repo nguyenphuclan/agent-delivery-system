@@ -64,11 +64,11 @@ Examples:
 - `do-ticket PROJECT-1234 --speed-mode` — vague PO + hard deadline. Activates `_shared/self-detailing-requirements-protocol.md`: AI fills ambiguities with sourced defaults, surfaces only `needs_po` items (1-3), bulk-accept the rest. PR description auto-includes "AI-Decided Defaults" audit. Total user time at analyze ≈ 2 min.
 - `do-ticket PROJECT-1234 show-context` — print ticket-context.yaml for debugging
 
-**Auto speed-mode:** If `analyze-requirements` scores requirement clarity < 60/100 (vague verbs, no AC, "miễn chạy là dc" signals), AI proposes activating self-detailing automatically. User can accept or override.
+**Auto speed-mode:** If `analyze-requirements` scores requirement clarity < 60/100 (vague verbs, no AC, "just make it work" / "good enough to run" signals), AI proposes activating self-detailing automatically. User can accept or override.
 
 **Flow gate auto-routing:** Phase 6c (after analyze) checks `{project_docs}/flows/flow_index.yaml` for business flows touched by this ticket (matched by flow keywords + entity references). If a touched flow has `health != ok` OR `known_gates[]` → offers proactive DPS routing BEFORE plan (see Phase 6 step 6c). Replaces the old "wait for FM-3X-SAME-ROOT during implement" recovery pattern.
 
-**Worktree trigger detection:** also activate `--worktree` when user says "worktree riêng", "song song", "parallel", "isolated stack".
+**Worktree trigger detection:** also activate `--worktree` when user says "parallel", "isolated stack".
 
 If `<TICKET_ID>` is missing → ask: *"Which ticket ID? (e.g. PROJECT-1234)"*
 
