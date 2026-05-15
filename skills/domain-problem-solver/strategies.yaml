@@ -1,0 +1,174 @@
+# domain-problem-solver/strategies.yaml — investigation strategies
+#
+# Each strategy is a different shape for an investigation. Picked by problem_type
+# + signals after Phase 1 (workspace resolution) and Phase 3 (input classification).
+# A session can switch strategy mid-flow if reclassified (Phase 5b).
+
+strategies:
+
+  - id: bug-trace
+    summary: "Bug investigation. Anchor on observed error → enumerate hypotheses → falsify cheapest first → narrow to root cause."
+    when: "input_type=Bug AND clear error / unexpected behavior described"
+    default_for:
+      - problem_type: bug
+    flow:
+      - "Phase 4 clarification — focus on Trigger, Expected vs Actual, Frequency, Recent changes"
+      - "Phase 5a — domain mapping via _shared/domain-mapping-protocol (Tier 1-3)"
+      - "Phase 5b — generate ranked hypotheses via _shared/hypothesis-protocol"
+      - "Phase 5c — for top hypothesis, define cheapest falsification test"
+      - "Surface ranked hypotheses + falsification tests to user"
+      - "If user runs falsification → continue with surviving hypothesis"
+      - "Loop until 1 hypothesis confirmed or all top-3 falsified (then revisit backlog)"
+
+  - id: perf-deep-dive
+    summary: "Performance / scalability investigation. Bottleneck localization via metrics, query plans, hot paths."
+    when: "input contains 'slow', 'timeout', 'high CPU/memory', 'doesn't scale', 'latency'"
+    default_for: []
+    flow:
+      - "Phase 4 — focus on Frequency, Volume, Environment (load profile), Recent changes (deploys, data growth)"
+      - "Phase 5a — identify the bottleneck candidate surface: DB / network / CPU / memory / lock contention"
+      - "Phase 5b — enumerate hypotheses per surface (slow query, N+1, GC pause, lock, hot key, etc)"
+      - "Phase 5c — recommend concrete measurement: query plan, profiler trace, metric panel"
+      - "Often handoff to a measurement skill, not direct to do-ticket"
+    note: "Output frequently recommends 'measure first, fix second'. Don't propose fixes without measurement evidence."
+
+  - id: contract-violation
+    summary: "Cross-service contract issue: API returns wrong shape, event payload missing field, eventual consistency drift."
+    when: "input mentions API response, event consumer, callback, integration, sync"
+    default_for: []
+    flow:
+      - "Phase 1b — auto-trigger cross-project signal detection"
+      - "Phase 4 — focus on Producer side, Consumer side, Contract version"
+      - "Phase 5a — load BOTH services' domain indexes (Tier 4 cross-relationships)"
+      - "Phase 5b — locate the contract: API spec, event schema, DB column"
+      - "Phase 5c — hypothesis ladder: producer changed silently / consumer assumes old shape / contract drift / version skew"
+      - "Surface: who deployed last, contract diff, who owns the schema"
+
+  - id: requirement-discovery
+    summary: "Requirement is fuzzy. Convert vague desire into structured spec via clarification + domain grounding."
+    when: "input_type=Requirement AND user description is high-level"
+    default_for:
+      - problem_type: requirement
+    flow:
+      - "Phase 4 clarification — Scope, Affected parties, Acceptance criteria, Out-of-scope"
+      - "Phase 5a — domain mapping: which entities + flows + invariants apply"
+      - "Phase 5c — produce structured Requirement output (per existing template) with: type, scope, AC, risks"
+      - "Phase 6 — offer handoff to do-ticket as crud-feature or Jira ticket creation"
+
+  - id: question-answer
+    summary: "User has a question about how the system works. Answer directly from domain knowledge."
+    when: "input_type=Question — 'how does', 'why does', 'what happens when'"
+    default_for:
+      - problem_type: question
+    flow:
+      - "Phase 4 — minimal clarification (1 round at most), only if entity/scope unclear"
+      - "Phase 5a — domain-mapping-protocol Tier 1 (quickref) first; fall through if needed"
+      - "Output: concise grounded answer citing entities/rules"
+      - "Phase 7 — minimal session log (no investigation file unless escalated)"
+    note: "Most question-answer sessions resolve in 1 round. If clarification grows past 2 rounds → likely actually a bug or requirement → reclassify."
+
+  - id: investigation-driven-by-hypothesis
+    summary: "User already has a hypothesis. Skill's job: test the hypothesis, not generate new ones."
+    when: "user input includes 'I think it's because...', 'is it possible that...', 'could it be...'"
+    default_for: []
+    flow:
+      - "Phase 4 — capture the hypothesis verbatim. Ask only what's needed to test it"
+      - "Phase 5b — ONE hypothesis to test (theirs). Define falsification clearly"
+      - "Output: verdict (confirmed / refuted / partial) + evidence + alternative if refuted"
+
+  - id: cascading-investigation
+    summary: "High-level vague problem ('performance is bad', 'sync doesn't work'). Decompose into sub-questions before diving."
+    when: "Phase 2b detects vague high-level signal AND no concrete trigger"
+    default_for: []
+    flow:
+      - "Phase 4 — first ask ONE dimension at a time. Don't try to clarify everything in 1 round"
+      - "After each clarification → check: enough to pick a more specific strategy?"
+      - "Once specific signal emerges → switch to bug-trace / perf-deep-dive / contract-violation"
+    note: "This is a routing strategy — it almost always switches to a more specific strategy mid-flow."
+
+  - id: quick
+    summary: "Fastest path. No clarification, no session files. Single answer based on input as-is."
+    when: "user passed --quick flag OR input is well-specified single-fact question"
+    default_for: []
+    flow:
+      - "Skip Phase 4 entirely"
+      - "domain-mapping-protocol Tier 1 only"
+      - "Direct answer + assumptions list"
+      - "Skip Phase 7 (no files written)"
+      - "Offer escalation: 'Want a full investigation with session tracking? Just say so.'"
+
+  - id: flow-trace
+    summary: "Trace one or more business flows end-to-end: every trigger path × the cascade it walks × the effect it produces × gaps where trigger doesn't reach effect. Used when do-ticket Phase 6c routes here for pre-plan deep trace."
+    when: "input includes --from-briefing=<path> flag OR keywords 'flow', 'trace cascade', 'rerouting', 'indication', 'sync', 'connect flow A to flow B', 'what triggers X', 'why doesn't X fire'"
+    default_for: []
+    flow:
+      - "FT-1 SCOPE: Load dps-briefing.md from --from-briefing path (or extract flow name + in-scope repos from user input). Identify target flow(s), each flow's known triggers + expected effects, in-scope repos."
+      - "FT-2 ANCHOR: For each flow, confirm entry handlers (sync_entry + async_entry + invariant_owner) from {project_docs}/flows/flow_index.yaml + {project_docs}/code/domain_index.yaml. Verify each file:line still exists. Do NOT guess."
+      - "FT-3 TRACE: For each TRIGGER PATH (not per field), follow end-to-end from entry handler → cascade → final effect. Read 2-3 levels deep. Check whether each step is actually wired or silently drops the signal (silent-overwrite, conditional-publish, early-return are the typical gates)."
+      - "FT-4 MAP: Build flow_map per trigger path showing trigger → handler → cascade → final effect. One trigger path per row."
+      - "FT-5 GAP ANALYSIS: For each trigger path, ask: 'Does this trigger actually reach the flow's expected effect?' Classify: REACHES (OK) / SILENTLY-DROPS (GAP — there's a gate that swallows the signal) / PARTIAL (reaches some effects, not others) / WRONG-EFFECT (reaches a different effect than expected)."
+      - "FT-6 OPTIONS: For each GAP propose 2–3 implementation options with trade-offs (where to hook, transactional boundary, idempotency, backwards-compat impact, blast radius)."
+      - "FT-7 DECIDE: Recommend ONE option per gap with reasoning + confidence (high/medium/low). If confidence=low → flag dps_open_assumptions for plan-phase verification."
+      - "FT-8 OUTPUT: investigation-findings.md with flow_map section + gap_analysis + decisions. Set final_status=RESOLVED + suggested_implement_strategy. do-ticket resumes plan phase via --from-dps."
+    note: |
+      Trace by TRIGGER PATH, not by field cascade. A flow has N triggers (e.g. rerouting has
+      3 triggers: 3rd-party API update, GUI dedicated, GUI generic) and one effect (cancel +
+      recreate OutTask). For each trigger, the question is "does it reach the effect?" Not
+      "what does this field do?"
+
+      Hypothesis discipline still applies: do not start by reading code. Start from the briefing's
+      flow context → find anchor handlers (flow_index + domain_index first) → THEN read code
+      to trace. Anchor first, code second.
+
+      Never propose an option that conflicts with a confirmed invariant — re-check
+      flow_index.flows.<name>.invariants_respected and {project_docs}/domain/<Entity>.yaml.
+
+# Default selection rules (top-down, first match wins)
+selection_rules:
+  - if: --quick flag
+    pick: quick
+  - if: --from-briefing= flag is set
+    pick: flow-trace
+  - if: input contains 'flow' OR 'rerouting' OR 'trace cascade' OR 'connect flow' OR 'why doesn''t X fire' OR 'what triggers X'
+    pick: flow-trace
+  - if: input mentions slow/timeout/latency/scale
+    pick: perf-deep-dive
+  - if: input mentions API/event/callback/sync between services
+    pick: contract-violation
+  - if: input contains user-stated hypothesis ("I think it's because...")
+    pick: investigation-driven-by-hypothesis
+  - if: input is high-level vague AND no concrete trigger
+    pick: cascading-investigation
+  - if: input_type == Bug
+    pick: bug-trace
+  - if: input_type == Requirement
+    pick: requirement-discovery
+  - if: input_type == Question
+    pick: question-answer
+  - default: bug-trace                # safest fallback — assumes investigation needed
+
+# Mid-flow strategy switches (allowed when reclassification happens)
+strategy_promotions:
+  - from: question-answer
+    to: bug-trace
+    when: "clarification rounds > 2 — turns out it was a bug, not a question"
+  - from: bug-trace
+    to: requirement-discovery
+    when: "Phase 5b reveals root cause is a missing feature, not a defect"
+  - from: cascading-investigation
+    to: any specific strategy
+    when: "decomposition surfaced a concrete signal"
+  - from: any
+    to: contract-violation
+    when: "cross-project signal detected mid-investigation"
+
+# Failure pivots (skill-level — see also failure-modes.yaml for FM-XX)
+failure_pivots:
+  - on: "clarification loop exceeds max_rounds without progress"
+    action: "DPS-FM-CLARIFY-LOOP-STUCK → escalate per Phase 5d"
+  - on: "all top-3 hypotheses falsified, backlog empty"
+    action: "DPS-FM-NO-HYPOTHESIS-LEFT → invoke domain-mapping-protocol Tier 4 cross-relationships"
+  - on: "domain index missing for required entity"
+    action: "DPS-FM-NO-DOMAIN-MATCH → flag gap, continue with explicit assumption, propose /scan-update"
+  - on: "user contradiction can't be resolved"
+    action: "DPS-FM-CONTRADICTION-UNRESOLVED → log both versions, escalate to user choice"
