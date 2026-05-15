@@ -10,9 +10,11 @@ private_repo: ~/.claude/skills
 
 skills:
   scan-init:
-    source_file: skills/scan-init/SKILL.md
-    last_synced_commit: c205b84
-    last_synced_at: 2026-05-14
+    source_files:
+      - skills/scan-init/SKILL.md
+      - skills/scan-init/surface-layers.md
+    last_synced_commit: e77e193
+    last_synced_at: 2026-05-15
 
   do-ticket:
     source_files:
@@ -24,15 +26,22 @@ skills:
       - skills/do-ticket/do-ticket-patterns.md
       - skills/do-ticket/run-telemetry-schema.md
       - skills/do-ticket/promote-knowledge.md
-    last_synced_commit: b350ddd
-    last_synced_at: 2026-05-14
+      - skills/do-ticket/do-ticket-update.md
+      - skills/do-ticket/quality-review.md
+    last_synced_commit: e77e193
+    last_synced_at: 2026-05-15
 
   promote-observations:
     source_file: skills/promote-observations/SKILL.md
-    last_synced_commit: b350ddd
-    last_synced_at: 2026-05-14
+    last_synced_commit: e77e193
+    last_synced_at: 2026-05-15
 
   domain-problem-solver:
-    source_file: skills/domain-problem-solver/SKILL.md
-    last_synced_commit: c205b84
-    last_synced_at: 2026-05-14
+    source_files:
+      - skills/domain-problem-solver/SKILL.md
+      - skills/domain-problem-solver/failure-modes.yaml
+      - skills/domain-problem-solver/investigation-findings-schema.md
+      - skills/domain-problem-solver/investigation-telemetry-schema.md
+      - skills/domain-problem-solver/strategies.yaml
+    last_synced_commit: e77e193
+    last_synced_at: 2026-05-15
