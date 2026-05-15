@@ -173,7 +173,7 @@ For each `problem_type`, compute success rate of each strategy. If strategy A < 
 ### 4. Domain index gap promotion
 `domain_mapping.domain_gaps_flagged[]` accumulated across sessions:
 - Same entity/aspect missing in ≥3 sessions → propose `/scan-update` task to add it
-- Surface to user as "kho domain knowledge cần bổ sung"
+- Surface to user as "domain knowledge gaps to fill"
 
 ### 5. Reclassification patterns
 - `question → bug` reclassifications frequent → suggest tighter input classification heuristics
