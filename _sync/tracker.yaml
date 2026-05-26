@@ -28,8 +28,14 @@ skills:
       - skills/do-ticket/promote-knowledge.md
       - skills/do-ticket/do-ticket-update.md
       - skills/do-ticket/quality-review.md
-    last_synced_commit: e77e193
-    last_synced_at: 2026-05-15
+    last_synced_commit: 1f8a5eb
+    last_synced_at: 2026-05-26
+
+  enrich-requirements:
+    source_files:
+      - skills/enrich-requirements/SKILL.md
+    last_synced_commit: 1f8a5eb
+    last_synced_at: 2026-05-26
 
   promote-observations:
     source_file: skills/promote-observations/SKILL.md

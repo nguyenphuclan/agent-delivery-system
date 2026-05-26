@@ -64,11 +64,11 @@ Examples:
 - `do-ticket PROJECT-1234 --speed-mode` — vague PO + hard deadline. Activates `_shared/self-detailing-requirements-protocol.md`: AI fills ambiguities with sourced defaults, surfaces only `needs_po` items (1-3), bulk-accept the rest. PR description auto-includes "AI-Decided Defaults" audit. Total user time at analyze ≈ 2 min.
 - `do-ticket PROJECT-1234 show-context` — print ticket-context.yaml for debugging
 
-**Auto speed-mode:** If `analyze-requirements` scores requirement clarity < 60/100 (vague verbs, no AC, "just make it work" / "good enough to run" signals), AI proposes activating self-detailing automatically. User can accept or override.
+**Auto speed-mode:** If `analyze-requirements` scores requirement clarity < 60/100 (vague verbs, no AC, "miễn chạy là dc" signals), AI proposes activating self-detailing automatically. User can accept or override.
 
 **Flow gate auto-routing:** Phase 6c (after analyze) checks `{project_docs}/flows/flow_index.yaml` for business flows touched by this ticket (matched by flow keywords + entity references). If a touched flow has `health != ok` OR `known_gates[]` → offers proactive DPS routing BEFORE plan (see Phase 6 step 6c). Replaces the old "wait for FM-3X-SAME-ROOT during implement" recovery pattern.
 
-**Worktree trigger detection:** also activate `--worktree` when user says "parallel", "isolated stack".
+**Worktree trigger detection:** also activate `--worktree` when user says "worktree riêng", "song song", "parallel", "isolated stack".
 
 If `<TICKET_ID>` is missing → ask: *"Which ticket ID? (e.g. PROJECT-1234)"*
 
@@ -135,6 +135,7 @@ Reading order = execution order. The numbers below are the **canonical sequence 
 | # | Phase | Skill |
 |---|-------|-------|
 | 5 | `requirements` | jira-to-requirements |
+| 5.5 | `enrich` | enrich-requirements (PO-proxy enrichment from project docs; skipped for bugfix-*, hotfix, doc-only, refactor, spike, migration-only) |
 | 6 | `analyze` | analyze-requirements (sub-steps: 6a context-expansion → 6b analyze → 6c flow-gate) |
 | 7 | `invariant-scope` | invariant-check (--pre) |
 | 8 | `test-cases` | write-test-cases |
@@ -439,6 +440,25 @@ Save fingerprint. Proceed to Phase 6.
 **Jira staleness (resume):** if `jira.fetched_at` is older than 24h → *"Requirements were fetched >24h ago. Re-fetch to catch new comments? (y/n)"* Yes → re-fetch and diff vs current; show delta before proceeding. No → proceed with cached version.
 
 On `update_count > 0`: after rewrite, diff vs prior version → confirm delta with user before proceeding.
+
+### Phase 5.5 — `enrich` (PO-proxy)
+
+Runs after `requirements` (5), before `analyze` (6). Turns thin Jira tickets into a detailed product spec the BA can analyze cleanly.
+
+**Skip conditions:**
+- `ticket_type ∈ {bugfix-small, bugfix-investigated, bugfix-regression, hotfix, doc-only, refactor, spike, migration-only}` — enrichment is a `crud-feature` and `fe-only` concern; smaller types either have an inline repro (bug) or no spec to enrich (refactor/migration/doc).
+- `--from-dps` mode — investigation-findings.md already supplies an enriched-equivalent spec; jira-to-requirements derives requirements.md from it directly, no PO-proxy needed.
+- `ticket-context.dps_session_id` set on resume — same reason as above.
+
+**Invoke:** `enrich-requirements <TICKET_ID>` per `enrich-requirements/SKILL.md`. Output: `requirements-enriched.md`.
+
+**Always blocks for user review on first run** — even when verdict is `PASS_THROUGH`. The whole point of this phase is a checkpoint where the user (a) confirms the enriched spec matches PO intent, (b) decides whether open questions need to be posted to Jira before BA runs. Resume skips the block if `state.phase >= enrich` AND fingerprint unchanged.
+
+**On Jira escalation:** if user chooses to post open questions back to PO as Jira comments, offer to set `phase: blocked, blocked_reason: "awaiting PO answers on N questions"`. User resumes via `do-ticket <ID>` once PO replies — Phase 5 (requirements) will refresh the ticket and Phase 5.5 will re-enrich the deltas.
+
+**Failure handling:** if enrich-requirements cannot resolve `{project_docs}` → log to telemetry, write a thin `requirements-enriched.md` that's a near-copy of `requirements.md` with verdict `PASS_THROUGH (docs unavailable)`, surface to user with: *"Project docs not available — enriched spec is a passthrough. BA will absorb the gap. Proceed? (y/n)"*. No FM registered yet — this is an unknown_failures candidate.
+
+**Downstream consumers:** analyze-requirements (Phase 6) treats `requirements-enriched.md` as the primary input; if Phase 5.5 was skipped for this ticket type, it falls back to `requirements.md` (same as today).
 
 ### Phase 6 — `analyze`
 
@@ -944,6 +964,15 @@ Ask the user these 3 questions, one at a time. Answers written to `run-telemetry
 > *(one line per item: which phase + what was missing, or "none")*
 
 After collecting answers → write to `quality_signals` per schema. Then close `run-telemetry.yaml` (set `ended_at`, `duration_seconds`). These signals feed `/learn` → concrete SKILL.md proposals after ≥2 occurrences.
+
+**Post-ticket learn prompt (mandatory — runs after PR is merged and ticket is closed):**
+
+> "PR merged and ticket complete. Run `/learn` now to capture session insights as permanent improvements? (y/n)"
+
+- `y` → invoke `/learn`. The learn skill will ask the verification gate ("verified bug-free?") before writing anything permanent.
+- `n` → skip. Remind: *"Run `/learn` any time to revisit this session."*
+
+This step is the primary feedback loop from ticket execution back into skill quality. Do not skip it silently.
 
 ---
 

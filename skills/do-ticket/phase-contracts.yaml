@@ -1,4 +1,4 @@
-# phase-contracts.yaml — formal contracts for every do-ticket phase
+﻿# phase-contracts.yaml — formal contracts for every do-ticket phase
 #
 # Replaces the static prerequisite table in do-ticket/SKILL.md.
 # do-ticket uses this to:
@@ -77,13 +77,43 @@ contracts:
       phase: requirements
     update_cycle: "On update_count > 0, write requirements-vN-diff.md and confirm with user"
 
+  enrich:                               # Phase 5.5 — PO-proxy enrichment
+    skill: enrich-requirements
+    inputs:
+      required:
+        - "requirements.md"
+        - "ticket-context.yaml"
+      optional:
+        - "{project_docs}/_quickref.yaml"
+        - "{project_docs}/domain/<Entity>.yaml (per entity in requirements)"
+        - "{project_docs}/domain/_glossary.yaml"
+        - "{project_docs}/flows/flow_index.yaml + matching flow .md (per flow keyword)"
+        - "{project_docs}/concepts/*.md (per overloaded term)"
+        - "{project_docs}/lifecycle/*.md (when state transitions are in scope)"
+        - "{project_docs}/incidents/incidents.yaml (tier-1 only — for edge-case hints)"
+        - "{project_docs}/conventions.md"
+    outputs:
+      - "requirements-enriched.md"
+      - "ticket-context.yaml (+ fingerprints.requirements_enriched_sha, enrichment_verdict, enrichment_open_questions_count, po_escalation[])"
+    state_writes:
+      phase: enrich                     # OR phase: blocked if user defers or wants to escalate questions
+    blocks_on:
+      - "user has not reviewed enriched spec (always — first run)"
+      - "Sibling Coverage Table has unresolved rows"
+      - "Open Questions with blocking: true"
+    skip_when:
+      - "ticket_type ∈ {bugfix-small, hotfix, doc-only, refactor, spike, migration-only, bugfix-investigated}"
+      - "requirements.md missing (Phase 5 must run first)"
+      - "ticket-context.dps_session_id is set (DPS handoff supplies richer spec)"
+    update_cycle: "On Jira comment changes, refresh requirements.md first, then re-enrich only changed requirements; write requirements-enriched-vN-diff.md"
+
   analyze:                              # Phase 6 (sub-steps: 6a context-expansion → 6b analyze-requirements → 6c flow-gate)
     skill: analyze-requirements
     strategy_registry: analyze-requirements/strategies.yaml
     readiness_gate: 6
     inputs:
       required:
-        - "requirements.md"
+        - "requirements-enriched.md (preferred — from Phase 5.5; falls back to requirements.md if Phase 5.5 was skipped for this ticket_type)"
         - "ticket-context.yaml"
         - "{project_docs}/code/domain_index.yaml"
       optional:
@@ -431,6 +461,35 @@ contracts:
     state_writes:
       phase: pr-review
     triggers_re_run: "Phases 5-13 re-run in update mode"
+
+  promote-knowledge:                    # Phase 22.5 — see promote-knowledge.md for full spec
+    skill: promote-observations (extended)
+    inputs:
+      required:
+        - "implement-summary.md"
+        - "plan.md"
+        - "requirements-analysis.md"
+        - "git diff of merge commit"
+        - "~/.claude/skills/assistant/observations.md"
+        - "{project_docs}/_index.yaml"
+        - "{project_docs}/domain/_index.yaml"
+        - "{project_docs}/INDEX.md"
+      optional:
+        - "invariants_encoded.yaml"
+    outputs:
+      - "promoted.md"
+      - "Updates to {project_docs}/domain/, concepts/, patterns/, runbooks/, _quickref.yaml, INDEX.md"
+      - "_index.yaml fingerprint refresh"
+      - "ticket-context.yaml (+ promoted_count, new_files_created[])"
+    state_writes:
+      phase: promote-knowledge
+    user_gate:
+      "Show detection table → wait for approve / skip / reclassify / merge / rename"
+    skip_when:
+      - "ticket_type ∈ {doc-only, spike, hotfix}"
+      - "user opted out via --no-promote flag"
+    failure_modes: [FM-PROMOTE-DUP-CONFLICT, FM-PROMOTE-FINGERPRINT-DRIFT, FM-PROMOTE-INDEX-WRITE-FAIL, FM-PROMOTE-NO-ENTITY, FM-PROMOTE-OVER-EAGER]
+    hard_stops_on: [FM-PROMOTE-INDEX-WRITE-FAIL]
 
   done:                                 # Phase 23
     skill: do-ticket internal
