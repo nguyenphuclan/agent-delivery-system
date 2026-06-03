@@ -100,7 +100,7 @@ blocked_reason: null
 worktree_path: null
 worktree_mode: false
 worktree_offset: null         # +100, +200, etc. — auto-allocated by worktree-setup
-worktree_paths: {}            # service-keyed map: { identity_provider, third_party_mock, api_task, sla, connector, scheduler, api_portal, automation, shared_lib }
+worktree_paths: {}            # service-keyed map: { shared_lib, api_service, api_admin, identity, frontend, ... } — keys match projects.yaml repos
 worktree_ports: {}            # service-keyed map (same keys as worktree_paths minus shared_lib): effective port = main_port + offset
 # Flow-gate (Phase 6c) state — written when gate fires:
 dps_briefing_path: null       # abs path to dps-briefing.md (when phase = awaiting_dps)
