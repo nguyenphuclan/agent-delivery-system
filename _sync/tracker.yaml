@@ -28,8 +28,9 @@ skills:
       - skills/do-ticket/promote-knowledge.md
       - skills/do-ticket/do-ticket-update.md
       - skills/do-ticket/quality-review.md
-    last_synced_commit: 1f8a5eb
-    last_synced_at: 2026-05-26
+      - skills/do-ticket/code-quality-review.md
+    last_synced_commit: 865218b
+    last_synced_at: 2026-06-03
 
   enrich-requirements:
     source_files:

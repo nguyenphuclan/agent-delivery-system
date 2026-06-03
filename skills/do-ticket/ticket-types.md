@@ -77,12 +77,13 @@ Phase keys reference do-ticket/SKILL.md. `*` = optional. `!` = type-specific gat
 
 ```
 branch → rebase-check → requirements → enrich → analyze → invariant-scope → test-cases → plan
-  → fe-impact-check → unit-tests → implement → regression → env-gate → api-test → commit
-  → pre-push → ci-check → invariant-encoded → qa-checklist → pr-ready → pr-review
-  → promote-knowledge
+  → fe-impact-check → unit-tests → implement → regression → completeness-audit → code-quality-review
+  → env-gate → api-test → commit → pre-push → ci-check → invariant-encoded → qa-checklist
+  → pr-ready → pr-review → promote-knowledge
 ```
 
 `enrich` runs PO-proxy enrichment (project-docs only, no source code). Always pauses for user review on first run.
+`code-quality-review` (Phase 13.5) is the diff-scoped quality gate — full version here. `must-fix` findings loop back to implement.
 `fe-impact-check` auto-skips when plan touches no FE-consumed endpoint.
 
 Risk profile baseline: medium. All standard gates apply.
@@ -93,9 +94,11 @@ Risk profile baseline: medium. All standard gates apply.
 
 ```
 branch → rebase-check → requirements (lite) → plan (lite) → unit-tests → implement
-  → regression → commit → pre-push → ci-check → qa-checklist → pr-ready → pr-review
-  → promote-knowledge
+  → regression → code-quality-review (lite) → commit → pre-push → ci-check → qa-checklist
+  → pr-ready → pr-review → promote-knowledge
 ```
+
+`code-quality-review (lite)` = dimensions 1,2,4,6,8 only (structural + test core).
 
 **Lite mode rules:**
 - `requirements (lite)` — extract only the bug repro + expected behavior. No full BA analysis.
@@ -111,11 +114,11 @@ branch → rebase-check → requirements (lite) → plan (lite) → unit-tests �
 ```
 branch → rebase-check → requirements → investigate (domain-problem-solver)
   → analyze → test-cases → plan → fe-impact-check → unit-tests → implement → regression
-  → env-gate → api-test → commit → pre-push → ci-check → qa-checklist → pr-ready → pr-review
-  → promote-knowledge
+  → completeness-audit → code-quality-review → env-gate → api-test → commit → pre-push
+  → ci-check → qa-checklist → pr-ready → pr-review → promote-knowledge
 ```
 
-Adds an explicit `investigate` phase before analyze. Output: `investigation-findings.md`. Used when root cause is unknown at ticket creation time. `fe-impact-check` auto-skips when plan touches no FE-consumed endpoint.
+`code-quality-review` (Phase 13.5) full version. Adds an explicit `investigate` phase before analyze. Output: `investigation-findings.md`. Used when root cause is unknown at ticket creation time. `fe-impact-check` auto-skips when plan touches no FE-consumed endpoint.
 
 ---
 
@@ -149,9 +152,10 @@ Risk profile: critical. Requires G3 confirmation before hotfix-deploy.
 
 ```
 branch → rebase-check → plan → behavior-diff-tests → implement → regression
-  → commit → pre-push → ci-check → pr-ready → pr-review → promote-knowledge
+  → code-quality-review (lite) → commit → pre-push → ci-check → pr-ready → pr-review → promote-knowledge
 ```
 
+`code-quality-review (lite)` matters most here — a refactor's whole point is better structure; the gate verifies the diff actually improved it.
 - Skip: `requirements` (refactor goal is in ticket title), `analyze`, `qa-checklist` (no behavior change to QC).
 - `behavior-diff-tests` — characterization tests that lock current behavior BEFORE refactor. Replaces `test-cases` + `unit-tests`.
 - Strict invariant: no behavior change. CI must show all existing tests pass without modification.
@@ -186,8 +190,10 @@ branch → doc-edit → commit → pr-ready → pr-review
 
 ```
 branch → plan → migration-script → dry-run-test → implement (apply migration)
-  → regression → pre-push (with G3) → commit → pr-ready → pr-review → promote-knowledge
+  → regression → code-quality-review → pre-push (with G3) → commit → pr-ready → pr-review → promote-knowledge
 ```
+
+`code-quality-review` (Phase 13.5) reviews any application/data-access code shipped alongside the migration (not the SQL script itself).
 
 - `plan` MUST include rollback script + data risk analysis.
 - `dry-run-test` — apply migration to throwaway DB clone, verify Down() works.
@@ -202,9 +208,11 @@ Risk profile: critical. `migration-script` artifact lands in `public-project-doc
 
 ```
 branch → rebase-check → requirements → enrich → analyze → test-cases → plan → unit-tests (Jest)
-  → storybook-stories → implement → e2e-smoke → regression → commit
+  → storybook-stories → implement → e2e-smoke → regression → code-quality-review → commit
   → pre-push → ci-check → qa-checklist → pr-ready → pr-review → promote-knowledge
 ```
+
+`code-quality-review` (Phase 13.5) full version — naming/duplication/thinness apply to component + store code too.
 
 - `unit-tests` = Jest/Karma component specs.
 - `storybook-stories` = mandatory for any visible UI change.
@@ -242,16 +250,16 @@ Used by Phase 2 step 5 to recompute `risk_profile` + `risk_factors` after any ty
 
 | Type | Risk baseline | risk_factors | Mandatory gates | Skipped gates |
 |------|---------------|--------------|-----------------|---------------|
-| `crud-feature` | medium | [new-endpoint, db-change-possible, multi-layer] | all standard | none |
-| `bugfix-small` | low | [targeted-fix, limited-surface] | secrets-scan, regression | analyze, qa-checklist gates |
-| `bugfix-investigated` | medium | [unknown-root-cause, domain-deep-dive] | + investigate | none beyond bugfix-small |
-| `bugfix-regression` | high | [working-broke, bisect-needed] | + regression-test-first | none |
-| `hotfix` | critical | [prod-impact, time-pressure, minimal-test] | G3 deploy, secrets-scan | analyze, test-cases, qa-checklist |
-| `refactor` | medium | [behavior-preservation, test-coverage-required] | behavior-diff-locked | qa-checklist |
-| `spike` | low | [research-only, no-code-output] | none | implement, commit, pr |
-| `doc-only` | low | [docs-only, no-logic-change] | secrets-scan | everything else |
-| `migration-only` | critical | [schema-change, data-at-risk, rollback-required] | G3 migration, dry-run | qa-checklist, api-test |
-| `fe-only` | medium | [ui-change, no-domain-change] | storybook + e2e-smoke | api-test, invariant |
+| `crud-feature` | medium | [new-endpoint, db-change-possible, multi-layer] | all standard + code-quality-review (full) | none |
+| `bugfix-small` | low | [targeted-fix, limited-surface] | secrets-scan, regression, code-quality-review (lite) | analyze, qa-checklist gates |
+| `bugfix-investigated` | medium | [unknown-root-cause, domain-deep-dive] | + investigate, code-quality-review (full) | none beyond bugfix-small |
+| `bugfix-regression` | high | [working-broke, bisect-needed] | + regression-test-first, code-quality-review (lite) | none |
+| `hotfix` | critical | [prod-impact, time-pressure, minimal-test] | G3 deploy, secrets-scan | analyze, test-cases, qa-checklist, code-quality-review |
+| `refactor` | medium | [behavior-preservation, test-coverage-required] | behavior-diff-locked, code-quality-review (lite) | qa-checklist |
+| `spike` | low | [research-only, no-code-output] | none | implement, commit, pr, code-quality-review |
+| `doc-only` | low | [docs-only, no-logic-change] | secrets-scan | everything else (incl. code-quality-review) |
+| `migration-only` | critical | [schema-change, data-at-risk, rollback-required] | G3 migration, dry-run, code-quality-review (full) | qa-checklist, api-test |
+| `fe-only` | medium | [ui-change, no-domain-change] | storybook + e2e-smoke, code-quality-review (full) | api-test, invariant |
 
 ---
 

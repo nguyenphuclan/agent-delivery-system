@@ -144,6 +144,7 @@ Reading order = execution order. The numbers below are the **canonical sequence 
 | 11 | `implement` | implement |
 | 12 | `regression` | do-ticket internal (verify implement-summary) |
 | 13 | `completeness-audit` | do-ticket internal (per-change-type checklist) |
+| 13.5 | `code-quality-review` | do-ticket internal (diff-scoped quality gate — see `code-quality-review.md`) |
 | 14 | `env-gate` | do-ticket internal (services-running confirmation) |
 | 15 | `api-test` | learn-crud |
 | 16 | `commit` | do-ticket internal (16a clarification recheck → 16b commit prompt) |
@@ -157,6 +158,7 @@ Reading order = execution order. The numbers below are the **canonical sequence 
 
 **Hard ordering invariants** (cannot be reordered regardless of ticket type):
 - `regression` (12) must complete before `commit` (16)
+- `code-quality-review` (13.5) must complete (or be skipped per type) before `commit` (16); any `must-fix` open → loop to `implement` (11), not proceed
 - `api-test` (15) must complete or be explicitly skipped before `commit` (16)
 - `commit` (16) must complete before `pre-push` (17)
 - `pr-ready` (21) requires explicit user `y/n` before `gh pr create`
@@ -783,6 +785,7 @@ Show count + offer edit → user picks proceed/edit. **Error-path coverage check
 - **DPS handoff mode:** pre-set `strategies_picked.implement = <dps_suggested_strategy>` before strategy selection runs (treat as user-provided override). Surface any `dps_open_assumptions` not yet acknowledged as G1 items here.
 - Pattern injection: load `do-ticket-patterns.md` → match registry → if match found: inject as decision card. If no match → run **auto-induction** (sample 3-5 sibling files) per `do-ticket-patterns.md` "Auto-induction" section → inject + **write-back**: append discovered pattern to `{project_docs}/patterns/_index.yaml` (create file if missing) + update `_index.yaml` artifacts.patterns. This is how `patterns/_index.yaml` is bootstrapped — it does not exist until first plan run, and grows ticket-by-ticket.
 - Every non-trivial decision logged per `_shared/decision-confidence-protocol.md` with confidence tag (high/medium/low) + evidence cards.
+- **Structural-quality gate (per `code-quality-review.md` §A):** fold a `structural_quality` decision group into the plan — answer the 4 plan-time-knowable questions (layer placement · new-vs-extend-fat-method · improve-vs-mirror per `feedback_quality_over_mirror` · duplication-of-existing-logic). Record under a `## Structural quality` heading in `plan.md` + `ticket-context.structural_quality_decisions[]`. These ride the confidence-gated review below — a flagged/`low`-confidence answer surfaces in the ≤5 CRITICAL items; all-clean auto-proceeds with no extra prompt. Skipped for `doc-only`, `spike`, `hotfix`; `migration-only` runs only the layer-placement question.
 - Lite mode for `bugfix-small` and `hotfix`: ≤1-page plan.
 
 **Confidence-gated review (Q6):**
@@ -870,6 +873,26 @@ Output: `completeness-audit.md`. Gaps block phase 16 (`commit`) until user decid
 
 User reviews `review-priorities.md` (5-min read), not 40-file diff.
 
+### Phase 13.5 — `code-quality-review`
+
+Runs after `completeness-audit` (13), before `env-gate` (14). The QUALITY pass do-ticket was missing — completeness-audit asks "did you cover the change-types", invariant-check asks "is it domain-correct"; this asks **"is the code well-built"**. Full spec + 10 dimensions + output template in `code-quality-review.md` §B.
+
+**Mandate:** strict-reviewer discipline — push back with actionable bullets; rubber-stamping is forbidden.
+
+**Scope discipline (non-negotiable):** review the **DIFF only** (`git diff` of this ticket's changes + immediate enclosing method), never the whole repo. Pre-existing debt in touched-but-unchanged code = `out-of-scope` finding (log, optionally `spawn_task`); **never fixed here.** This is what keeps the gate sharp without scope creep in a brownfield codebase.
+
+**Dimensions (10):** layering/placement · handler-service thinness · naming vs `domain/_glossary.yaml` · introduced duplication · dead weight · data-access & control-flow waste (the `feedback_quality_over_mirror` smells) · error handling · test meaningfulness · `conventions.md` conformance · mirror-vs-improve audit (closes the loop on the Phase 9 §A decision).
+
+**Gate (the teeth):**
+- Each finding → `must-fix` / `nice-to-have` / `out-of-scope`.
+- Any `must-fix` open → **do not proceed.** Write open items to `ticket-context.quality_findings[status=open]`, set `phase: code-quality-review`, loop back to `implement` (11) → `regression` (12) → `completeness-audit` (13) → here again. (FM-QUALITY-MUST-FIX.)
+- `must-fix` empty + `nice-to-have` present → surface once; per item `fix-now` / `defer` (defer → `ticket-context.deferred_quality_items[]`, surfaces in Phase 23 summary + PR description).
+- All clean → 1-line summary, proceed (don't interrupt when nothing's worth interrupting for).
+
+**Output:** `code-quality-review.md` in the ticket folder.
+
+**Skipped for:** `doc-only`, `spike`, `hotfix` (surgical-patch forbids drive-by improvement). **Lite version** (dimensions 1,2,4,6,8) for `bugfix-small`, `refactor`. **Full** for `crud-feature`, `bugfix-investigated`, `migration-only`, `fe-only`.
+
 ### Phase 14 — `env-gate`
 Runs after `completeness-audit` (13), before `api-test` (15). List required services → wait for explicit user confirmation services are running.
 
@@ -939,7 +962,7 @@ Show generated PR description → wait for explicit user `y/n` before `gh pr cre
 ### Phase 22 — `pr-review`
 On reviewer comments → invoke `handle-pr-review`:
 - SPLIT-REQUEST → write `split-plan.md`, increment `pr_count`, guide split.
-- MUST-FIX → write `update-implement.md` → re-run the implementation chain in update mode: phases 9 (`plan`) → 10 (`unit-tests`) → 11 (`implement`) → 12 (`regression`) → 13 (`completeness-audit`) → 14 (`env-gate`) → 15 (`api-test`) → 16 (`commit`) → 17 (`pre-push`) → 18 (`ci-check`) → 19 (`invariant-encoded`).
+- MUST-FIX → write `update-implement.md` → re-run the implementation chain in update mode: phases 9 (`plan`) → 10 (`unit-tests`) → 11 (`implement`) → 12 (`regression`) → 13 (`completeness-audit`) → 13.5 (`code-quality-review`) → 14 (`env-gate`) → 15 (`api-test`) → 16 (`commit`) → 17 (`pre-push`) → 18 (`ci-check`) → 19 (`invariant-encoded`).
 - NICE-TO-HAVE → offer: (a) address in this PR — add to `update-implement.md`; (b) defer to follow-up ticket — log to `ticket-context.deferred_review_items[]` as `{comment_id, description, status: deferred}`; (c) dismiss with reason logged.
 - Re-run pr-description (21) with delta summary. Increment `review_round`.
 
@@ -1008,6 +1031,7 @@ Full registry in `failure-modes.yaml`. Sample matrix:
 | 3+ same-root implement failures | FM-3X-SAME-ROOT | switch strategy → domain-deep-dive → ask user |
 | HTTP 200 + wrong data | FM-SILENT-API-BUG | return to implement |
 | Domain layer importing infra | FM-LAYER-VIOLATION | warn + ack |
+| Code-quality review found must-fix | FM-QUALITY-MUST-FIX | loop to implement, re-run 12/13/13.5 |
 | Secrets in staged files | FM-SECRETS-IN-DIFF | HARD STOP |
 | Unprotected HTTP endpoint | FM-UNPROTECTED-ENDPOINT | HARD STOP |
 | MSB3027 / DLL locked | FM-DLL-LOCKED | ask user close VS+services |

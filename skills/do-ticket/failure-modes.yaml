@@ -153,6 +153,18 @@ modes:
         action: "Warn: 'Domain layer importing infrastructure namespace <ns> in <file>. Breaks layer isolation — intentional?' Require ack/fix."
         gate: G1
 
+  - id: FM-QUALITY-MUST-FIX
+    detect:
+      - "Phase 13.5 code-quality-review produced ≥1 finding with severity=must-fix"
+      - "ticket-context.quality_findings has an entry status=open severity=must-fix"
+    severity: must-fix
+    pivots:
+      - id: loop-to-implement
+        action: "Do NOT proceed to env-gate. Write open must-fix items to ticket-context.quality_findings[status=open]. Set state phase=code-quality-review with blocked_reason listing the items. Loop: implement (11) → regression (12) → completeness-audit (13) → code-quality-review (13.5). Re-review only the changed hunks."
+        skill: implement
+    escalate_to_user: G1
+    note: "Diff-scoped only. Pre-existing debt is out-of-scope (log / optional spawn_task) — never a must-fix. See code-quality-review.md §B scope discipline."
+
   # ============================================================
   # SECURITY / SAFETY
   # ============================================================

@@ -307,6 +307,34 @@ contracts:
       - "FM-PLAN-CHANGESET-DRIFT (files in diff not in plan)"
     stale_check: "phase_readiness[12] — requires build artifact fresh"
 
+  code-quality-review:                  # Phase 13.5 — diff-scoped quality gate (post-code). See code-quality-review.md §B.
+    skill: do-ticket internal
+    inputs:
+      required:
+        - "git diff of this ticket's changes (staged+unstaged, or <base>...HEAD on update)"
+        - "implement-summary.md"
+        - "ticket-context.yaml"
+      optional:
+        - "plan.md (+ ctx.structural_quality_decisions[] — to close the mirror-vs-improve loop from Phase 9 §A)"
+        - "{project_docs}/domain/_glossary.yaml (naming-vs-ubiquitous-language check)"
+        - "{project_docs}/conventions.md OR {project_docs}/conventions/*.yaml (conformance check)"
+    outputs:
+      - "code-quality-review.md"
+      - "ticket-context.yaml (+ quality_findings[], deferred_quality_items[])"
+    state_writes:
+      phase: code-quality-review          # OR loops to implement (11) when must-fix open
+    failure_modes: [FM-QUALITY-MUST-FIX]
+    blocks_on:
+      - "any quality_findings[status=open, severity=must-fix] → loop to implement (11), re-run 12/13/13.5"
+    user_gate:
+      "If only nice-to-have findings: surface once, per-item fix-now/defer. If clean: 1-line summary, no prompt."
+    scope_discipline: "DIFF only — never the whole repo. Pre-existing debt in touched-but-unchanged code = out-of-scope finding (log / optional spawn_task), never fixed in this ticket."
+    skip_when:
+      - "ticket_type ∈ {doc-only, spike, hotfix}"
+    lite_mode:
+      when: "ticket_type ∈ {bugfix-small, refactor}"
+      detail: "dimensions 1,2,4,6,8 only (structural + test core); ≤1-screen output"
+
   env-gate:                             # Phase 14
     skill: do-ticket internal
     readiness_gate: 14
@@ -460,7 +488,7 @@ contracts:
       - "split-plan.md (if split requested)"
     state_writes:
       phase: pr-review
-    triggers_re_run: "Phases 5-13 re-run in update mode"
+    triggers_re_run: "Phases 5-13.5 re-run in update mode (incl. code-quality-review on the new diff)"
 
   promote-knowledge:                    # Phase 22.5 — see promote-knowledge.md for full spec
     skill: promote-observations (extended)

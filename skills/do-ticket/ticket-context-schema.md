@@ -40,6 +40,8 @@ Phase numbers below match the canonical enumeration in `do-ticket/SKILL.md`.
 | 11 (implement) | implement | `strategies_picked.implement` |
 | 0 (load-state, --from-dps) | do-ticket | `dps_session_id`, `dps_session_path`, `dps_final_status`, `dps_open_assumptions`, `dps_suggested_strategy` |
 | 13 (completeness-audit) | do-ticket | `completeness_gaps` |
+| 9 (plan, §A) | implement-plan | `structural_quality_decisions` |
+| 13.5 (code-quality-review) | do-ticket | `quality_findings`, `deferred_quality_items` |
 | 15 (api-test, ad-hoc) | do-ticket | `adhoc_findings` |
 | 22 (pr-review) | do-ticket | `deferred_review_items` |
 | Each phase | do-ticket | `phases_run`, `last_updated` |
@@ -129,6 +131,28 @@ deferred_review_items: []
 #   - comment_id: "abc123"
 #     description: "Reviewer: extract this into a helper method"
 #     status: deferred       # deferred | dismissed
+
+# Set by phase 9 (plan, §A structural gate) — the 4 plan-time quality verdicts
+structural_quality_decisions: []
+# Format:
+#   - question: layer-placement | new-vs-extend | improve-vs-mirror | duplication-of-existing
+#     verdict: "new code uses AnyAsync(predicate) instead of mirroring ToList+foreach in TaskService"
+#     confidence: high       # low confidence surfaces in Phase 9 CRITICAL review
+
+# Set by phase 13.5 (code-quality-review) — diff-scoped findings
+# status: open | resolved | deferred | rejected ; severity: must-fix | nice-to-have | out-of-scope
+quality_findings: []
+# Format:
+#   - id: q-1
+#     dimension: 6            # data-access & control-flow
+#     location: "TaskService.cs:142"
+#     problem: "ToListAsync then foreach to check existence"
+#     fix: "AnyAsync(t => t.ClusterId == id)"
+#     severity: must-fix
+#     status: open
+
+# nice-to-have findings the user chose to defer (surfaced in Phase 23 + PR description)
+deferred_quality_items: []
 
 # Hashes for staleness detection
 fingerprints:
