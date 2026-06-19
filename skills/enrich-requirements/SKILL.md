@@ -19,6 +19,12 @@ This skill exists to fix a specific gap: Jira tickets from external POs are usua
 
 **You are playing PO-proxy.** Your job is to turn a thin ticket into the spec a careful PO would have written, using only product-level knowledge (domain docs), never source code.
 
+**Two distinct jobs — keep them separate.** Enrichment is really two independent things:
+1. **Structuring** — turning thin intent into ordered flows + testable acceptance criteria. A *thin* ticket needs this.
+2. **Domain-grounding** — adding the edge cases and cascade behavior the project's domain docs / incidents / lifecycle know about, and resolving open questions against those docs. **Even an already-well-structured ticket needs this**, because whoever authored it (a PO, or an upstream ticket-authoring step) did not have the project's domain index.
+
+Some upstream processes produce **spec-grade input**: requirements that already arrive with structured acceptance criteria, explicit scope, and explicit open questions parked for downstream resolution. For spec-grade input your value is **domain-grounding + open-question triage, NOT re-structuring** — do not rewrite ACs that are already clean; spend your effort where the author could not reach (the domain docs). Detect this from the *shape* of the input (structured ACs + scope + pre-existing open questions present) and downshift accordingly.
+
 ---
 
 ## Hard boundary — what you CAN and CANNOT read
@@ -74,25 +80,41 @@ This skill exists to fix a specific gap: Jira tickets from external POs are usua
 
 Read `requirements.md` and list each requirement with a stable ID (`R1`, `R2`, …). Note any open questions already flagged by jira-to-requirements.
 
-### 2. Classify enrichment need (clarity assessment)
+### 2. Classify enrichment need (two independent decisions)
 
-For each requirement, score on three axes (1–5 each):
+Score each requirement on three axes (1–5 each), but read them as **two separate decisions** — structuring and domain-grounding are decided independently:
 
-- **Flow clarity**: does the requirement describe what the user does, in order?
-- **Criteria clarity**: are there testable acceptance criteria, or just intent?
-- **Edge-case coverage**: does the requirement mention what happens when the happy path doesn't apply (empty, invalid, permission denied, state mismatch, concurrent edit)?
+- **Flow clarity** (structural): does the requirement describe what the user does, in order?
+- **Criteria clarity** (structural): are there testable acceptance criteria, or just intent?
+- **Edge-case coverage** (domain): does it state what happens off the happy path (empty, invalid, permission denied, state mismatch, concurrent edit)?
 
-Total score per requirement: 3–15.
+**Decision 1 — structuring** (from flow + criteria, score 2–10):
 
-| Score | Action |
-|-------|--------|
-| 12–15 | Pass-through — copy to enriched output verbatim; mark `[no enrichment needed]` |
-| 7–11  | Standard enrichment — fill in missing flow / criteria / edge cases from domain docs |
-| 3–6   | Deep enrichment — requirement is intent-only; produce a full Given/When/Then spec from scratch using domain knowledge |
+| Structural score | Structuring action |
+|---|---|
+| 9–10 | **Skip structuring** — copy flow + ACs through verbatim; do NOT rewrite them |
+| 5–8  | Standard — fill in missing flow / criteria from domain docs |
+| 2–4  | Deep — intent-only; produce a full Given/When/Then spec from scratch |
+
+**Decision 2 — domain-grounding** (independent of Decision 1): **always run it when `{project_docs}` resolved**, even for a requirement that skipped structuring. Structural completeness ≠ domain-grounded — a clean set of ACs can still miss an incident-proven edge case or a lifecycle cascade the author never saw. Domain-grounding = incoming open-question triage (step 3-pre), the edge-case probe (3c), and PO open questions (3d). Skip it only when `{project_docs}` could not be resolved, or the requirement has no entity / lifecycle / flow surface at all.
+
+> **Pass-through is a structuring verdict, not a license to skip everything.** A requirement can "skip structuring" yet still receive domain-grounding. Inventing structure for an already-clean AC is as wrong as skipping a known edge case — do the part the author could not, skip the part they already did.
 
 **Overall enrichment verdict (top of output):**
-- All requirements 12–15 → `PASS_THROUGH` (no enrichment needed, original spec was complete)
-- Any requirement < 12 → `ENRICHED`
+- A requirement counts as pass-through only if it contributed **nothing**: structure complete AND domain docs surfaced no new edge case AND no open question was touched.
+- All requirements pass-through → `PASS_THROUGH`. Any requirement that received structuring OR domain-grounding → `ENRICHED`.
+
+### 3-pre. Ingest & triage incoming open questions
+
+Some inputs arrive with **open questions already parked by the upstream author** — a PO note, or a ticket-authoring step that deliberately deferred repo/domain-answerable unknowns. Do not ignore them, and do not blindly re-ask them.
+
+For each open question already present in `requirements.md`, sort it into exactly one bucket:
+
+1. **A project doc answers it** (domain shard rule, lifecycle transition, flow, incident) → **resolve it**; record the answer with its source, exactly like an edge-case citation. It leaves the open-questions list.
+2. **Docs can't answer, but a PO could decide it** → keep it as a PO open question (carried into Step 3d).
+3. **Needs source code / repo to answer** → carry it forward verbatim, tagged `[defer to BA / repo]` — it is not a PO question and not yours to resolve.
+
+This is the inverse of Step 3d: there you *raise* questions the docs can't answer; here you *retire* questions the docs *can*. An upstream author without the project's domain index parks exactly the questions you are positioned to close — closing them is the highest-value thing you do for spec-grade input.
 
 ### 3. For each requirement that needs enrichment
 
@@ -225,10 +247,12 @@ Write to `{ticket_dir}/requirements-enriched.md` (create or overwrite). Update `
 
 ## All open questions (consolidated)
 
-| # | Question | Impacts | PO action |
-|---|---|---|---|
-| 1 | [Q from R1] | AC1.2 | Confirm X or Y |
-| 2 | [Q from R3] | EC3.1, EC3.4 | Specify threshold |
+| # | Question | Origin | Impacts | PO action / disposition |
+|---|---|---|---|---|
+| 1 | [Q from R1] | raised here | AC1.2 | Confirm X or Y |
+| 2 | [Q carried from input] | from input | EC3.1 | **defer to BA / repo** — needs source code |
+
+*Incoming open questions that a project doc answered are NOT listed here — they appear resolved under their requirement's edge cases with the doc cited. List here only what still needs a PO decision or is deferred to BA/repo.*
 
 *(If zero open questions, write: "All requirements resolved from domain docs — no PO escalation needed.")*
 
@@ -289,3 +313,5 @@ If invoked with `update` mode (PO added Jira comments after enrich already ran):
 - **Output language: English** regardless of input language.
 - **Do not write test cases.** That's `write-test-cases`' job. ACs are the source of truth that write-test-cases will turn into test cases.
 - **Do not plan implementation.** Even if you spot an obvious technical approach, it goes in BA's analysis, not here.
+- **Skip structuring, never skip grounding.** A structurally-complete requirement still gets the domain-grounding probe (incoming-OQ triage + edge cases) whenever project docs exist. Pass-through means "the author already structured it well," not "there is nothing to add."
+- **Retire incoming open questions you can close.** Open questions already in the input that a project doc answers must be resolved (with citation), not re-escalated. Carry forward only the genuinely doc-unanswerable ones — PO decisions to Step 3d, code/repo questions tagged `[defer to BA / repo]`.
