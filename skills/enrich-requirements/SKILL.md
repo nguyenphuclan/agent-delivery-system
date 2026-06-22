@@ -104,6 +104,25 @@ Score each requirement on three axes (1–5 each), but read them as **two separa
 - A requirement counts as pass-through only if it contributed **nothing**: structure complete AND domain docs surfaced no new edge case AND no open question was touched.
 - All requirements pass-through → `PASS_THROUGH`. Any requirement that received structuring OR domain-grounding → `ENRICHED`.
 
+### 2.5. Ambiguity & coverage scan (Spec Kit `clarify` taxonomy)
+
+Before drafting per-requirement enrichment, scan the **whole ticket for under-specification** using the team's Spec Kit `clarify` taxonomy. We do NOT run the `/speckit.clarify` slash command (the render contract forbids it) — we apply its *discipline*. For each category, mark **Clear / Partial / Missing** as an **internal coverage map** (do NOT emit it as a new output section — it changes the spec structure; it only *feeds* the existing Edge Cases / Acceptance Criteria / Open Questions sections, exactly as `/speckit.clarify` keeps its map internal):
+
+- **Functional scope & behavior** — core goal, success criteria, explicit out-of-scope, role/persona differences
+- **Domain & data model** — entities, attributes, identity/uniqueness, lifecycle/state transitions, scale assumptions
+- **Interaction & UX flow** — critical journeys, and the three states: **empty / loading / error**
+- **Non-functional** — performance, reliability, security/permission, observability, compliance (only where the feature plausibly hits them)
+- **Integration & external deps** — external services + failure modes, import/export formats, versioning
+- **Edge cases & failure handling** — negative scenarios, throttling, concurrent-edit conflict (the Step 3c checklist feeds this category)
+- **Constraints & tradeoffs** — hard business constraints, explicitly rejected alternatives
+- **Terminology & consistency** — one canonical glossary term used throughout; flag synonyms / deprecated terms (cross-check `domain/_glossary.yaml`)
+- **Completion signals** — is every AC **binary and testable**? is "done" measurable?
+- **Placeholders / vague language** — `TODO`s, and **un-quantified adjectives** ("robust", "fast", "intuitive", "easy", "as needed") that no test can be written against
+
+A `Partial`/`Missing` category becomes a candidate open question (Step 3d) **unless** a project doc resolves it (→ record it resolved, with citation, like an edge-case) or it is better deferred to BA/plan (surface as `[defer to BA / repo]`). Prioritise candidates by **Impact × Uncertainty** and carry at most **5** into PO open questions (Step 3d); the rest become `[assumed default — PO confirm]` or are deferred.
+
+> **This scan is the lever that makes the spec QC-derivable and FE-fillable.** A spec that is Clear across the taxonomy is one QC can turn into an end-to-end test case and FE can dress with UI specifics without guessing — the direct fix for "spec too BE / QC can't write e2e".
+
 ### 3-pre. Ingest & triage incoming open questions
 
 Some inputs arrive with **open questions already parked by the upstream author** — a PO note, or a ticket-authoring step that deliberately deferred repo/domain-answerable unknowns. Do not ignore them, and do not blindly re-ask them.
@@ -309,7 +328,9 @@ If invoked with `update` mode (PO added Jira comments after enrich already ran):
 - **No source code reads.** If you need code to answer something, it's a question for PO or a BA concern — escalate, don't grep.
 - **Cite every edge case source.** Each EC must point to either a project_docs file or `[assumed default — PO confirm]`. Untraceable edge cases are noise.
 - **Pass-through is not lazy.** If requirements are already complete, marking `PASS_THROUGH` and skipping enrichment is the correct behavior. Do not invent edge cases to look busy.
-- **Open questions are expensive.** Every one costs a real PO conversation. Default to "assumed default — PO confirm" with a sensible value when domain docs support it. Only escalate when the default would be a guess.
+- **Open questions are expensive.** Every one costs a real PO conversation. Default to "assumed default — PO confirm" with a sensible value when domain docs support it. Only escalate when the default would be a guess. Cap PO questions at **5**, prioritised by Impact × Uncertainty (Spec Kit `clarify` discipline).
+- **No un-quantified vague adjectives in ACs / Success Criteria.** "fast", "robust", "intuitive", "user-friendly", "as needed" are not testable. Replace each with a measurable target (e.g. "under 2s", "≤ 5 items", "within the same shift") or escalate it as an open question. An AC that QC cannot mark pass/fail is a defect — this is the completion-signals category of the Step 2.5 scan.
+- **Carry `[NEEDS CLARIFICATION: …]` markers for blocking ambiguities.** When a Partial/Missing item has no sensible default, leave an inline `[NEEDS CLARIFICATION: <what>]` marker on the affected AC/FR (Spec Kit convention) AND list it in open questions — so it survives into the rendered `spec.md` and is visible to the whole team, not buried. These markers MUST be resolved (removed + logged in the spec's `## Clarifications`) before the spec advances past `Draft` to `Reviewed`/`Final`.
 - **Output language: English** regardless of input language.
 - **Do not write test cases.** That's `write-test-cases`' job. ACs are the source of truth that write-test-cases will turn into test cases.
 - **Do not plan implementation.** Even if you spot an obvious technical approach, it goes in BA's analysis, not here.
