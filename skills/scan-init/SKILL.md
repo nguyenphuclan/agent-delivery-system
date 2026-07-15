@@ -420,7 +420,7 @@ modules:
 ```
 
 **What does NOT go in `modules:`:**
-- `sla-entity-model` (pure data model — already in `namespaces.Mose.Task.Sla.Entities`)
+- `sla-entity-model` (pure data model — already in `namespaces.Acme.Task.Sla.Entities`)
 - `api-controllers` (pure delivery — already in `namespaces.<svc>.Controllers`)
 - `error-codes`, `infrastructure` (cross-cutting plumbing — already in namespaces)
 
@@ -1754,15 +1754,15 @@ flows:
         description: "AO sends solutionParty change via 3rd-party API"
         channel: api                       # api | gui | rabbitmq | scheduled
         entry_handler:
-          class: ThirdPartyFormGetter
-          location: acme-api-task/.../ThirdPartyFormGetter.cs:105
+          class: ExternalFormGetter
+          location: acme-api-task/.../ExternalFormGetter.cs:105
           repo: acme-api-task
       - id: t2
         description: "Portal user clicks 'Change Solution Party' button"
         channel: gui
         entry_handler:
-          class: TasksV2Controller.ChangeSolutionParty
-          location: acme-api-portal/.../TasksV2Controller.cs:127
+          class: OrdersV2Controller.ChangeSolutionParty
+          location: acme-api-portal/.../OrdersV2Controller.cs:127
           repo: acme-api-portal
       - id: t3
         description: "Routing Rule admin config change triggers re-evaluation"
@@ -1774,19 +1774,19 @@ flows:
     effects:
       - "Active OutTask under old party transitions to TO_BE_CANCELLED (revision++)"
       - "New OutTask created under new party in RECEIVED state"
-      - "RabbitMQ publish: SendInTaskToAO + SendOutTasksToContractor"
+      - "RabbitMQ publish: SendInboundOrderToPartner + SendOutboundOrdersToVendor"
 
     code_anchors:
       sync_entry:
         class: FlowController
         location: acme-api-task/.../FlowController.cs:30
       async_entry:
-        class: AssigneeSetter
-        location: acme-api-task/.../AssigneeSetter.cs:107
-        publishes_to: DwRoutingModel (queue)
+        class: AssignmentSetter
+        location: acme-api-task/.../AssignmentSetter.cs:107
+        publishes_to: RoutingModel (queue)
       invariant_owner:
-        class: TaskCreateExecutor
-        location: acme-api-task/.../TaskCreateExecutor.cs:51
+        class: OrderCreateExecutor
+        location: acme-api-task/.../OrderCreateExecutor.cs:51
         rule_enforced: "task_solution_parties row present = AO-explicit, bypass routing"
 
     related_entities: [ServiceTask, InTask, OutTask, OutTaskset]
@@ -1816,14 +1816,14 @@ flows:
       - id: kg-1
         description: "MapDataAsync silently overwrites inbound SolutionPartyId with stored value (PROJ-10867 lock-in)"
         mechanism: silent-overwrite
-        location: acme-api-task/.../ThirdPartyApiRouter.cs:315-356
+        location: acme-api-task/.../ExternalApiRouter.cs:315-356
         blocks_trigger: t1
         related_ticket: PROJ-10867
         confidence: confirmed
       - id: kg-2
-        description: "AssigneeSetter publish gated on isExistOutTask || shouldGenerateOuttask"
+        description: "AssignmentSetter publish gated on isExistOutTask || shouldGenerateOuttask"
         mechanism: conditional-guard
-        location: acme-api-task/.../AssigneeSetter.cs:107-119
+        location: acme-api-task/.../AssignmentSetter.cs:107-119
         blocks_trigger: t1
         related_ticket: PROJ-10869
         confidence: confirmed

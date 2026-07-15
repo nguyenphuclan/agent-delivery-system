@@ -630,7 +630,7 @@ Per `investigation-findings-schema.md`. Generated at Phase 6 when user accepts h
 | `investigation-driven-by-hypothesis` | user has a theory | test theirs, verdict + evidence |
 | `cascading-investigation` | vague high-level | decompose first, then switch to specific strategy |
 | `quick` | --quick flag | direct answer, no session files |
-| `flow-trace` | `--from-briefing` flag, or "rerouting", "indication", "sync", "why doesn't X fire", "connect flow A to flow B" | flow_map per trigger path of each in-scope flow + gap analysis (which trigger path silently drops the signal) + per-gap decisions. Output consumed by do-ticket plan phase via `--from-dps`. |
+| `flow-trace` | `--from-briefing` flag, or "reassignment", "flagging", "sync", "why doesn't X fire", "connect flow A to flow B" | flow_map per trigger path of each in-scope flow + gap analysis (which trigger path silently drops the signal) + per-gap decisions. Output consumed by do-ticket plan phase via `--from-dps`. |
 
 Full registry: `strategies.yaml`. Selection rules: `strategies.yaml.selection_rules`.
 

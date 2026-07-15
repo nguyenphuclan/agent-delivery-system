@@ -66,7 +66,7 @@ Some upstream processes produce **spec-grade input**: requirements that already 
 
 ### Conditionally read (based on requirements content)
 - If requirements mention an **entity name** → read `{project_docs}/domain/<Entity>.yaml` (one file per entity)
-- If requirements mention a **flow keyword** (e.g. "rerouting", "indication", "sync") → read matching entry from `{project_docs}/flows/flow_index.yaml` + the flow's detail .md
+- If requirements mention a **flow keyword** (e.g. "reassignment", "flagging", "sync") → read matching entry from `{project_docs}/flows/flow_index.yaml` + the flow's detail .md
 - If requirements use **vague parity language** ("similar to", "same as", "consistent with X") → read the entity shard for X
 - If requirements touch a **lifecycle** (state transitions, status changes) → read `{project_docs}/lifecycle/*.md` for the relevant entity
 
@@ -175,7 +175,7 @@ Keep this section TIGHT — every open question costs a real PO conversation. If
 ### 4. Scope-completeness probe (light version of BA's sibling check)
 
 Read `_quickref.yaml` and entity family clusters. For each primary entity touched:
-- List sibling entities in the same family (e.g. `IN_TASK` siblings: `OUT_TASK`, `SERVICE_TASK`).
+- List sibling entities in the same family (e.g. `INBOUND_ORDER` siblings: `OUTBOUND_ORDER`, `SERVICE_ORDER`).
 - For each sibling, check if `requirements.md` includes or excludes it.
 - If not mentioned → add row to **Sibling Coverage Table** asking PO to confirm scope.
 

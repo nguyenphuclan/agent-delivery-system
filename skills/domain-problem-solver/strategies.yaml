@@ -99,7 +99,7 @@ strategies:
 
   - id: flow-trace
     summary: "Trace one or more business flows end-to-end: every trigger path × the cascade it walks × the effect it produces × gaps where trigger doesn't reach effect. Used when do-ticket Phase 6c routes here for pre-plan deep trace."
-    when: "input includes --from-briefing=<path> flag OR keywords 'flow', 'trace cascade', 'rerouting', 'indication', 'sync', 'connect flow A to flow B', 'what triggers X', 'why doesn't X fire'"
+    when: "input includes --from-briefing=<path> flag OR keywords 'flow', 'trace cascade', 'reassignment', 'flagging', 'sync', 'connect flow A to flow B', 'what triggers X', 'why doesn't X fire'"
     default_for: []
     flow:
       - "FT-1 SCOPE: Load dps-briefing.md from --from-briefing path (or extract flow name + in-scope repos from user input). Identify target flow(s), each flow's known triggers + expected effects, in-scope repos."
@@ -111,9 +111,9 @@ strategies:
       - "FT-7 DECIDE: Recommend ONE option per gap with reasoning + confidence (high/medium/low). If confidence=low → flag dps_open_assumptions for plan-phase verification."
       - "FT-8 OUTPUT: investigation-findings.md with flow_map section + gap_analysis + decisions. Set final_status=RESOLVED + suggested_implement_strategy. do-ticket resumes plan phase via --from-dps."
     note: |
-      Trace by TRIGGER PATH, not by field cascade. A flow has N triggers (e.g. rerouting has
+      Trace by TRIGGER PATH, not by field cascade. A flow has N triggers (e.g. reassignment has
       3 triggers: 3rd-party API update, GUI dedicated, GUI generic) and one effect (cancel +
-      recreate OutTask). For each trigger, the question is "does it reach the effect?" Not
+      recreate OutboundOrder). For each trigger, the question is "does it reach the effect?" Not
       "what does this field do?"
 
       Hypothesis discipline still applies: do not start by reading code. Start from the briefing's
@@ -129,7 +129,7 @@ selection_rules:
     pick: quick
   - if: --from-briefing= flag is set
     pick: flow-trace
-  - if: input contains 'flow' OR 'rerouting' OR 'trace cascade' OR 'connect flow' OR 'why doesn''t X fire' OR 'what triggers X'
+  - if: input contains 'flow' OR 'reassignment' OR 'trace cascade' OR 'connect flow' OR 'why doesn''t X fire' OR 'what triggers X'
     pick: flow-trace
   - if: input mentions slow/timeout/latency/scale
     pick: perf-deep-dive

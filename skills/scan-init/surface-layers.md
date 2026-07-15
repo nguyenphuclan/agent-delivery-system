@@ -294,11 +294,11 @@ lifecycle_stages:
   create:
     paths:
       - name: "Service inbound (3rd-party AO API)"
-        entry: acme-api-task/.../InTaskCreateExecutor.cs:CreateInTaskAsTaskSummaryAsync
+        entry: acme-api-task/.../InOrderCreateExecutor.cs:CreateInTaskAsTaskSummaryAsync
         flow:
           - file: acme-shared-lib/.../TaskModelMapper.cs
             note: "Maps inbound *.solutionParty → ServiceTaskModel.SolutionPartyId"
-          - file: acme-api-task/.../InTaskCreateExecutor.cs
+          - file: acme-api-task/.../InOrderCreateExecutor.cs
             note: "Inserts task_solution_party row when SolutionPartyId > 0 (NOT gated on task type)"
         traps: []   # none currently known on create path
 
@@ -308,11 +308,11 @@ lifecycle_stages:
         entry: FlowController.cs
         traps: []
       - name: "3rd-party API patch-update"
-        entry: ThirdPartyApiRouter.cs:MapDataAsync
+        entry: ExternalApiRouter.cs:MapDataAsync
         traps:
           - id: G-1b
             severity: critical
-            file: acme-api-task/.../ThirdPartyApiRouter.cs:315-356
+            file: acme-api-task/.../ExternalApiRouter.cs:315-356
             cause: "PROJ-10867 address-unchanged lock silently overwrites AO-sent SolutionPartyId with stored value"
             visible_only_if: "AO sends solutionParty on UPDATE with address unchanged"
             invariant_at_risk: SP-INV-1
@@ -322,11 +322,11 @@ lifecycle_stages:
   clear:
     paths:
       - name: "Explicit NULL clear via 3rd-party patch"
-        entry: ThirdPartyFormGetter.cs
+        entry: ExternalFormGetter.cs
         traps:
           - id: G-3
             severity: medium
-            file: acme-api-task/.../ThirdPartyFormGetter.cs:107
+            file: acme-api-task/.../ExternalFormGetter.cs:107
             cause: "Early return when SolutionPartyId is null — silent no-op"
             invariant_at_risk: SP-INV-1
             note: "Invariant 'row absent = re-route fresh' not implemented for explicit clear path"
@@ -334,13 +334,13 @@ lifecycle_stages:
   rerouting:
     paths:
       - name: "Async rerouting publish on solution-party update"
-        entry: AssigneeSetter.cs
+        entry: AssignmentSetter.cs
         traps:
           - id: G-1a
             severity: high
-            file: acme-api-task/.../AssigneeSetter.cs:107-119
+            file: acme-api-task/.../AssignmentSetter.cs:107-119
             cause: "Rerouting publish gated on isExistOutTask || shouldGenerateOuttask"
-            edge_case: "AO update arrives BEFORE first OutTask is materialized → no DwRoutingModel publish → no rerouting"
+            edge_case: "AO update arrives BEFORE first OutTask is materialized → no RoutingModel publish → no rerouting"
             invariant_at_risk: "rerouting must fire on every accepted solutionParty change"
 
   read_projection:
@@ -441,7 +441,7 @@ flags:
     description: "Gates ContractorRouter routing-rule dynamic flow vs legacy AC-administrator fallback"
     read_locations:
       - Features/RoutingRule/ContractorRouter.cs:36
-      - Services/Tasks/ServiceTask/ThirdPartyCommunication/ThirdPartyApiRouter.cs:456
+      - Services/Tasks/ServiceTask/ThirdPartyCommunication/ExternalApiRouter.cs:456
     branch_behavior:
       "true": "use routing-rule OrgId → AssigneePartyId (never SolutionPartyId)"
       "false": "fall back to AC administrator lookup"
@@ -537,9 +537,9 @@ Plus four content-coverage rules (C1-C4) for specific high-leverage artifacts id
 
 Added after the PROJ-10869 do-ticket-analyze test. The test ran `do-ticket analyze` on a real production ticket while forbidding the sub-agent from reading the ticket's own folder, then scored the output against a known 4-SP impact map. Analyst caught 80% of the impact (correctly identified central design risk, surfaced 4 PO open questions, recommended DPS routing), but missed three specific code-lifecycle traps:
 
-- **G-1a** — `AssigneeSetter:107-119` rerouting publish gated on `isExistOutTask` (edge case: first AO update before any OutTask exists).
-- **G-1b** — `ThirdPartyApiRouter.MapDataAsync:315-356` silent overwrite via PROJ-10867 address-unchanged lock.
-- **G-3** — `ThirdPartyFormGetter.cs:107` NULL solutionParty silent no-op.
+- **G-1a** — `AssignmentSetter:107-119` rerouting publish gated on `isExistOutTask` (edge case: first AO update before any OutTask exists).
+- **G-1b** — `ExternalApiRouter.MapDataAsync:315-356` silent overwrite via PROJ-10867 address-unchanged lock.
+- **G-3** — `ExternalFormGetter.cs:107` NULL solutionParty silent no-op.
 
 All three were correctly identified in a prior DPS session (`domain-problem-solver/open/solution-party-rerouting-2026-05-14/`), but the findings were locked in the session folder with no surface in scan-init artifacts. Analyst had no way to discover them without re-running DPS.
 

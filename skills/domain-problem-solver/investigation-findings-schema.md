@@ -230,8 +230,8 @@ One row per trigger path that does NOT reach the flow's expected effect.
 
 | Gap ID | Flow | Trigger | Drop location | Drop mechanism | Severity |
 |--------|------|---------|---------------|----------------|----------|
-| G-1 | rerouting | 3rd-party API update | api-task/ThirdPartyApiRouter.cs:354 | silent-overwrite (PROJ-10867 lock-in) | critical |
-| G-2 | rerouting | 3rd-party API update | api-task/AssigneeSetter.cs:107 | conditional-guard (isExistOutTask) | high |
+| G-1 | reassignment | 3rd-party API update | api-service/ExternalApiRouter.cs:354 | silent-overwrite (PROJ-10867 lock-in) | critical |
+| G-2 | reassignment | 3rd-party API update | api-service/AssignmentSetter.cs:107 | conditional-guard (isExistOutboundOrder) | high |
 
 ## Decisions
 
@@ -263,7 +263,7 @@ Open assumption (if confidence != high): <what to verify in implement>
 - not_touched_repos: [<list of repos previously thought in scope but ruled out>]
 - new_dependencies: <e.g. RerouteService injected into ...>
 - transactional_boundary: <choice with reason>
-- backwards_compat_notes: <e.g. existing AO flows that publish DwRoutingModel still need to fire?>
+- backwards_compat_notes: <e.g. existing Partner flows that publish RoutingModel still need to fire?>
 - test_seeds: <suggested unit/integration test cases>
 ```
 

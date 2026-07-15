@@ -489,7 +489,7 @@ canonical_tags:
     - prod-impact
 
   subsystem:                      # which module — populated dynamically from variability_axes + module names
-    # e.g. cogas, indication, sync, deadline, kpi, dashboard, email-parsing, attachments
+    # e.g. billing, flagging, sync, deadline, kpi, dashboard, email-parsing, attachments
 
   triage:                         # workflow hints
     - on-touch                    # fix when you next touch this file

@@ -610,7 +610,7 @@ Open questions → G1 block. Save `phase_before_block: analyze`. Resume re-runs 
 
 Runs after 6b succeeds, before Phase 7. Goal: detect tickets that touch business flows with known complexity or recorded gates, and route to DPS for a `flow-trace` BEFORE plan, instead of waiting for FM-3X-SAME-ROOT recovery during implement (which is what burned PROJ-10869a).
 
-**Why flow-gate, not field-gate:** developers think in flows (rerouting, indication, sync), not in fields. A ticket usually touches ONE flow that may be triggered by N fields, not the other way around. flow_index is the right granularity — ~10-30 flows per project rather than 100s of fields. Field-level cascade is already implicit in code shards + topology; flow_index adds the unit-of-business view that's missing.
+**Why flow-gate, not field-gate:** developers think in flows (reassignment, flagging, sync), not in fields. A ticket usually touches ONE flow that may be triggered by N fields, not the other way around. flow_index is the right granularity — ~10-30 flows per project rather than 100s of fields. Field-level cascade is already implicit in code shards + topology; flow_index adds the unit-of-business view that's missing.
 
 **Skip conditions (do not gate, proceed to Phase 7):**
 - `--from-dps` mode → DPS already provided full context.
@@ -628,7 +628,7 @@ FG-2  FLOW MATCH: extract candidate tokens from requirements.md + requirements-a
       Lowercase ≥4-char tokens + UPPER_SNAKE_CASE tokens
       Match against flow_index.indexes.by_keyword AND flow_index.indexes.by_entity (when
       entity names appear).
-      Also match flow names directly (e.g. "rerouting" → flow_index.flows.rerouting).
+      Also match flow names directly (e.g. "reassignment" → flow_index.flows.reassignment).
 
       touched_flows[] = unique set of matched flow ids
       For each touched_flow:
@@ -662,7 +662,7 @@ FG-6  SURFACE G10:
           Risky flows: <list with reason — health=degraded / has known_gates / complexity=high>
           Known gates pre-recorded: <list, or "none">
           Keyword signals: <matched phrases, or "none">
-          Reason: <one sentence — e.g. "rerouting has 2 known gates blocking the 3rd-party API trigger path">
+          Reason: <one sentence — e.g. "reassignment has 2 known gates blocking the 3rd-party API trigger path">
 
         Recommended: route to DPS for flow-trace BEFORE plan. DPS will:
           - Anchor on each entry handler of the flow (from flow_index + code shards)
