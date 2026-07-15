@@ -195,6 +195,7 @@ contracts:
         - "{project_docs}/patterns/_index.yaml (if exists — for pattern injection; auto-induction fallback)"
         - "{project_docs}/db/db_index.yaml (if status: fresh — table shapes for migration planning)"
         - "{project_docs}/build/test.yaml (test project paths + run commands)"
+        - "{project_docs}/domain/_field_impact.yaml (if exists — §A question 5 base-value-impact lookup; degrades gracefully if absent)"
         - "context-expansion.md (if produced by step 6a — read for past-incident lessons + relevant queue topology before forming the plan)"
         - "update-implement-vN.md (update mode)"
         - "invariants_in_scope.yaml"
@@ -321,6 +322,7 @@ contracts:
     outputs:
       - "code-quality-review.md"
       - "ticket-context.yaml (+ quality_findings[], deferred_quality_items[])"
+      - "{project_docs}/domain/_field_impact.yaml (LAZY/OPTIONAL — appended ONLY when the diff touches a base value: dimension 11 supersession-hygiene; absent otherwise. A domain registry, underscore-prefixed like _relationships.yaml. Read at Phase 9 §A; deduped + reindexed at Phase 22.5. See code-quality-review.md §B 'Base-value supersession hygiene')"
     state_writes:
       phase: code-quality-review          # OR loops to implement (11) when must-fix open
     failure_modes: [FM-QUALITY-MUST-FIX]
@@ -507,6 +509,7 @@ contracts:
     outputs:
       - "promoted.md"
       - "Updates to {project_docs}/domain/, concepts/, patterns/, runbooks/, _quickref.yaml, INDEX.md"
+      - "{project_docs}/domain/_field_impact.yaml (deduped + reindexed when Phase 13.5 dimension-11 wrote load-bearing-field entries this ticket)"
       - "_index.yaml fingerprint refresh"
       - "ticket-context.yaml (+ promoted_count, new_files_created[])"
     state_writes:

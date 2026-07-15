@@ -59,6 +59,7 @@ Scan input sources for content matching any of these signals:
 | Gotcha | "watch out for", "surprised that", "expected X but got Y" | observation |
 | New error key / enum | git diff adds enum value or error code constant | invariant (entity) |
 | New constraint | git diff adds NOT NULL / CHECK / UNIQUE / FK | invariant (entity) |
+| Load-bearing base value | `code-quality-review.md` §Supersession lists a `marked load-bearing` field (dim 11) | field-impact registry |
 
 **Filter out:**
 - Generic statements ("we wrote tests", "code compiled")
@@ -84,6 +85,7 @@ Each detected finding routes to exactly one destination:
 | Operational fix | `{project_docs}/runbooks/<name>.md` (create if missing) | runbook template |
 | Quick fact / 1-liner | `{project_docs}/_quickref.yaml` → matching section | yaml entry per `promote-observations` STEP 4 |
 | Plain observation, count=1 | `~/.claude/skills/assistant/observations.md` (stays in staging) | one-line append |
+| Load-bearing base value | `{project_docs}/domain/_field_impact.yaml` → `fields{}` upsert | yaml entry: `{ role, consumers[], supersede_note, discovered_in }` |
 
 **Topic / entity selection rules:**
 
@@ -168,6 +170,7 @@ mirrors `promote-observations` STEP 3 — same UX, broader inputs.
 | `patterns/<name>.md` | create with template if missing; append section if exists |
 | `runbooks/<name>.md` | create or append; update `runbooks/INDEX.md` |
 | `_quickref.yaml` | per existing `promote-observations` STEP 4 rules |
+| `domain/_field_impact.yaml` | upsert field key; merge `consumers[]` (union, dedup); preserve other fields. Registry already written lazily by Phase 13.5 — 22.5 only dedups + reindexes |
 | `INDEX.md` | regenerate keyword → path entries for any new file |
 | `_index.yaml` | bump `last_updated` + recompute fingerprint for touched artifacts |
 
