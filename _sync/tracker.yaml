@@ -5,6 +5,20 @@
 #   2. Review + sanitize the diff
 #   3. Apply changes to this repo
 #   4. Update last_synced_commit + last_synced_at below
+#
+# HONESTY RULE: only advance last_synced_commit when a skill's FULL delta was synced.
+# A partial sync keeps the old commit + a `partial_sync` note. A lying tracker is worse than a
+# stale one — it silently drops the unsynced remainder forever.
+#
+# VERIFY, DON'T TRUST: the two tracker copies (private + public) have drifted apart before, in
+# both directions. Before diffing, grep the public file for the feature you're about to add —
+# an earlier sync may have landed it without recording the commit.
+#
+# SANITIZE: this mirror uses a fictional org — `acme` for company/repo names, `PROJ-<n>` for
+# ticket ids, `Acme.*` for namespaces, `sonarqube.acme.com` for hosts. The literal private->public
+# token map lives ONLY in the private copy of this file: writing the real names here would leak
+# exactly what the map exists to remove. Also scrub real customer/queue/class names,
+# machine-specific status tables, "this machine" phrasing, and personal-preference asides.
 
 private_repo: ~/.claude/skills
 
@@ -29,14 +43,53 @@ skills:
       - skills/do-ticket/do-ticket-update.md
       - skills/do-ticket/quality-review.md
       - skills/do-ticket/code-quality-review.md
-    last_synced_commit: 865218b
-    last_synced_at: 2026-06-03
+    last_synced_commit: 2b2b762
+    last_synced_at: 2026-06-19
+    partial_sync:
+      at: 2026-07-26
+      synced: >
+        ONLY the push-code wiring slice — phase table rows 17/18, Phase 17 prose (delegates to
+        push-code), Phase 18 (still the sole duplication + server-quality-gate check), the
+        phase-contracts pre-push contract, and the Phase 14 HARD PRE-CHECK that 13.5 must have run.
+      not_synced: >
+        The rest of the 2b2b762..HEAD backlog. Known-missing publicly: code-quality-review.md
+        §B comment-standard table + the write-time SonarC# gotchas (S125 prose-as-code, S3358
+        nested ternary), and the phase-24 qc-evidence row. Deliberately left: applying the gotchas
+        without their parent comment-standard section would leave the public doc incoherent.
+        Do a dedicated code-quality-review.md pass, then advance last_synced_commit.
+      drift_observed: >
+        Public already contained _field_impact.yaml + the dimension-11 base-value section, which
+        this tracker's commit predates — so some earlier sync landed content without recording it.
+        Treat both last_synced_commit values as lower bounds, not truth.
+
+  push-code:
+    source_files:
+      - skills/push-code/SKILL.md
+      - skills/push-code/sonar-local-gate.md
+      - skills/push-code/setup.md
+      - skills/push-code/failure-modes.yaml
+      - skills/push-code/parse-sonar-issues.py
+      - skills/push-code/parse-new-coverage.py
+    last_synced_commit: 1c98c1e
+    last_synced_at: 2026-07-26
+    # Initial full sync (v2 no-upload local gate). Sanitized: sonar host, ticket ids, FE repo name,
+    # shared-lib namespace, the machine-status table in setup.md, the endpoint-management product
+    # names (now "managed-endpoint sandbox with restricted loopback"), and a personal-preference
+    # aside. The two parsers were already project-agnostic.
+
+  worktree-setup:
+    source_files:
+      - skills/worktree-setup/SKILL.md
+    last_synced_commit: 1c98c1e
+    last_synced_at: 2026-07-26
+    # Initial full sync. Algorithm was already portable (all repo/service/port data lives in
+    # projects.yaml); only 3 tokens needed scrubbing.
 
   enrich-requirements:
     source_files:
       - skills/enrich-requirements/SKILL.md
-    last_synced_commit: 1f8a5eb
-    last_synced_at: 2026-05-26
+    last_synced_commit: f3c32b9
+    last_synced_at: 2026-06-22
 
   promote-observations:
     source_file: skills/promote-observations/SKILL.md
@@ -52,3 +105,27 @@ skills:
       - skills/domain-problem-solver/strategies.yaml
     last_synced_commit: e77e193
     last_synced_at: 2026-05-15
+
+# ---------------------------------------------------------------------------
+# NEVER MIRRORED — decided, do not re-litigate each sync.
+# ---------------------------------------------------------------------------
+never_mirrored:
+  game_and_personal_project_skills:
+    skills: [phat-dat-dev, ong-trum-dev, loom-dev, crossroads-dev, earths-reach-dev,
+             sprout-dev, sprout-scan, card-art, "zuno-*"]
+    reason: >
+      Hobby/personal-project skills, not reusable delivery methodology. Decided 2026-07-26.
+      Don't even offer a sanitize pass — commit to the private repo and stop.
+
+  spec-push:
+    reason: >
+      Self-declared company-only: the entire skill publishes into one company's spec meta-repo and
+      drives that org's own spec-review skill. 43 company tokens with no generic counterpart —
+      sanitizing yields a fictional skill nobody outside can run. Reassess only if the meta-repo
+      publishing pattern is ever generalized. Decided 2026-07-26.
+
+  web-test-automation:
+    reason: >
+      Generic algorithm, but the output path and workflow are wired to a personal review folder,
+      and it duplicates well-covered public ground (Playwright scaffolding). Low mirror value.
+      Decided 2026-07-26 — revisit if the scaffold is ever made config-driven.

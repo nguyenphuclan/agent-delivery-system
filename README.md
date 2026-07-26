@@ -62,6 +62,8 @@ Full setup in [`SETUP.md`](SETUP.md). Agent entry rules in [`CLAUDE.md`](CLAUDE.
 | `skills/scan-init/`               | Phase 1 — codebase indexing |
 | `skills/do-ticket/`               | Phase 2 — end-to-end ticket delivery |
 | `skills/domain-problem-solver/`   | Investigation without a ticket |
+| `skills/push-code/`               | Pre-push quality gate — the only sanctioned push path (do-ticket phase 17) |
+| `skills/worktree-setup/`          | Parallel git worktrees for a multi-repo service stack, port-offset per worktree |
 | `_shared/`                        | 14 reusable protocol files (clarification, hypothesis, mapping, etc.) |
 | `_config/projects.yaml.template`  | Project config schema |
 | `docs/`                           | Architecture + sample outputs |

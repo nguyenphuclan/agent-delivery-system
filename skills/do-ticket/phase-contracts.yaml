@@ -394,19 +394,26 @@ contracts:
       - "Commit format: <TICKET_ID>: short description"
 
   pre-push:                             # Phase 17
-    skill: do-ticket internal
+    skill: push-code                     # standard pre-push gate — the ONLY sanctioned push path (no plain `git push` fallback)
     readiness_gate: 17
     inputs:
       required:
-        - "Latest commit"
+        - "Latest commit + full branch diff (git diff <base>...HEAD)"
+        - "projects.<active>.sonar block (host, org, token_env, gates, project_key_resolution)"
         - "{project_docs}/conventions/security.yaml (secret regex patterns, auth-endpoint patterns)"
-      optional: []
+      optional:
+        - "code-quality-review.md (§B methodology reused for the final review step)"
     outputs:
-      - "(scan results in chat)"
+      - "local gate result (Sonar rule issues on new code + new-code coverage%) in chat; duplication-on-new-code explicitly reported as DEFERRED TO CI"
+      - "pushed branch (on all-green + confirm)"
     state_writes:
       phase: pre-push
-    failure_modes: [FM-SECRETS-IN-DIFF, FM-UNPROTECTED-ENDPOINT, FM-MIGRATION-DOWN-EMPTY]
+    # push-code owns the full gate; do-ticket keeps the migration warn. Its own gates
+    # (G-CONFIG/G-TOOLCHAIN) hard-stop if sonar config or toolchain is missing — never falls through to an ungated push.
+    failure_modes: [FM-SECRETS-IN-DIFF, FM-UNPROTECTED-ENDPOINT, FM-MIGRATION-DOWN-EMPTY, FM-QUALITY-MUSTFIX, FM-ANALYSIS-FAILED, FM-SONAR-NEWISSUE, FM-COVERAGE-LOW]
     hard_stops_on: [FM-SECRETS-IN-DIFF, FM-UNPROTECTED-ENDPOINT]
+    gate_blocks_on: [FM-QUALITY-MUSTFIX, FM-ANALYSIS-FAILED, FM-SONAR-NEWISSUE, FM-COVERAGE-LOW]  # block push, loop to implement (11→12→13→13.5), re-run 17
+    delegates_to: push-code              # see push-code/SKILL.md + sonar-local-gate.md
     stale_check: "phase_readiness[17] — requires conventions artifact fresh"
 
   ci-check:                             # Phase 18

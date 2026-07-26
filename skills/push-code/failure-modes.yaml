@@ -1,0 +1,55 @@
+# push-code failure modes.
+# Consumed like every other skill's failure-modes.yaml: on match, take `action`.
+# Gates G-CONFIG / G-TOOLCHAIN are hard pre-flight stops (skill cannot run).
+
+version: 2   # v2: no-upload local gate (Issues.json + coverage.xml parsing). See SKILL.md.
+
+gates:
+  G-CONFIG:
+    trigger: "projects.<active>.sonar block missing or incomplete"
+    action: "Stop. This skill cannot run without the sonar config. Print the missing keys and point to push-code/setup.md. Do NOT fall back to a plain git push."
+
+  G-TOOLCHAIN:
+    trigger: "dotnet-sonarscanner absent | dotnet-coverage absent | python absent | token_env unset | Sonar server unreachable or token invalid"
+    action: "Stop. Print exactly which pieces are missing (with the probe command) and point to push-code/setup.md. A skipped Sonar gate that reads as green is the one thing this skill exists to prevent — never silently proceed to push. NOTE: Java is NOT a prerequisite (the gate never runs the Java upload step)."
+
+failure_modes:
+  FM-SECRETS-IN-DIFF:
+    severity: hard-stop
+    trigger: "credential/secret/token/private-key pattern in the diff, or a staged .env / appsettings.*.json with real values"
+    action: "Block push. List the file:line. Require the user to remove the secret (and rotate if it was ever committed) before re-running. Never push a diff containing a live secret."
+
+  FM-UNPROTECTED-ENDPOINT:
+    severity: hard-stop
+    trigger: "new or changed controller action / route with no auth attribute where siblings have one"
+    action: "Block push. Show the endpoint + the sibling convention. Confirm intent (public by design?) or add the attribute, then re-run."
+
+  FM-QUALITY-MUSTFIX:
+    severity: block
+    trigger: "final-review (step 3) yields a must-fix finding (per code-quality-review.md §B severity table)"
+    action: "Do not analyze/push. Itemize findings. Standalone → present + stop for fix. do-ticket → hand to update chain (11→12→13→13.5). Re-run from step 3."
+
+  FM-ANALYSIS-FAILED:
+    severity: block
+    trigger: "sonarscanner begin errored, or dotnet build failed, or dotnet-coverage produced no coverage.xml / no .sonarqube/out/*/Issues.json"
+    action: "Do not push. Show the stderr. Common causes: token env unset/expired or server unreachable (begin can't fetch the profile), wrong project key (re-derive from the repo CI workflow), a compile error, or the scoped test filter matched no tests (widen it). Fix and re-run step 4. NOTE: a Java loopback error means someone tried the upload step `end` — that step is NOT part of this gate; remove it (see setup.md §Blocked)."
+
+  FM-SONAR-NEWISSUE:
+    severity: block
+    trigger: "parse-sonar-issues.py exits 1 — one or more S#### rule issues land on diff-added lines"
+    action: "Do not push. List each (rule · file:line · message) the parser printed. Fix them (common: S3776 complexity → extract a method; S125 → delete/reword a code-like comment; S3358 → de-nest the ternary). Re-run from step 4 (rebuild so the analyzers re-run). Issues on pre-existing lines are context only — do not gate on them."
+
+  FM-COVERAGE-LOW:
+    severity: block
+    trigger: "parse-new-coverage.py exits 1 — new-code coverage < gates.coverage_new_code_pct_min (default 80)"
+    action: "Do not push. Add meaningful tests for the uncovered new lines the parser listed (not assert-on-mock — code-quality-review §B dim 8), re-run step 4. Do NOT pad coverage with vacuous tests just to clear the number. If a new line is genuinely unreachable, question whether it belongs."
+
+  FM-DUP-DEFERRED:
+    severity: note
+    trigger: "always (duplication-on-new-code cannot be computed locally without the server upload)"
+    action: "Not a blocker here. In the gate summary, state plainly that duplication-on-new-code was NOT checked locally and is left to CI's PR analysis. Never imply it passed. (Refactor obvious copy-paste caught in final-review anyway — code-quality-review §B dim 4.)"
+
+  FM-PUSH-ON-PROTECTED:
+    severity: confirm
+    trigger: "current branch is base_branch / master, or push would be a force"
+    action: "Require explicit confirmation. force → --force-with-lease only, never --force. Protected-branch push always needs a fresh yes (global git policy)."

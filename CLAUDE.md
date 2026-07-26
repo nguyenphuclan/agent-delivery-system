@@ -34,6 +34,8 @@ See `SETUP.md` for the full step-by-step.
 | `scan-init`             | `skills/scan-init/SKILL.md`             | First time on a codebase, or when domain has drifted |
 | `do-ticket`             | `skills/do-ticket/SKILL.md`             | A ticket is ready — implement it end-to-end |
 | `domain-problem-solver` | `skills/domain-problem-solver/SKILL.md` | Open-ended question / bug / investigation, no ticket yet |
+| `push-code`             | `skills/push-code/SKILL.md`             | Code is ready to leave the machine — the ONLY sanctioned push path (do-ticket phase 17 delegates here) |
+| `worktree-setup`        | `skills/worktree-setup/SKILL.md`        | A second ticket must be worked in parallel without disturbing the main checkout |
 
 When invoked, **always read the skill's SKILL.md fully** before acting — phase contracts and gating live there.
 

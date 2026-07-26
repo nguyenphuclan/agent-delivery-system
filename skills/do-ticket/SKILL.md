@@ -150,8 +150,8 @@ Reading order = execution order. The numbers below are the **canonical sequence 
 | 14 | `env-gate` | do-ticket internal (services-running confirmation) |
 | 15 | `api-test` | learn-crud |
 | 16 | `commit` | do-ticket internal (16a clarification recheck → 16b commit prompt) |
-| 17 | `pre-push` | do-ticket internal (secrets/auth scan) |
-| 18 | `ci-check` | do-ticket internal |
+| 17 | `pre-push` | **push-code skill** (standard pre-push gate — final diff review + local analyzer run + 2 new-code gates (0 rule issues, coverage ≥ 80%) + push). Replaces the old internal secrets-scan-only pre-push. |
+| 18 | `ci-check` | do-ticket internal — Sonar rules + new-code coverage already gated locally at 17, but CI remains the ONLY check for duplication-on-new-code + the server quality gate. |
 | 19 | `invariant-encoded` | invariant-check (--post) |
 | 20 | `qa-checklist` | qa-checklist |
 | 21 | `pr-ready` | pr-description |
@@ -896,7 +896,16 @@ Runs after `completeness-audit` (13), before `env-gate` (14). The QUALITY pass d
 **Skipped for:** `doc-only`, `spike`, `hotfix` (surgical-patch forbids drive-by improvement). **Lite version** (dimensions 1,2,4,6,8) for `bugfix-small`, `refactor`. **Full** for `crud-feature`, `bugfix-investigated`, `migration-only`, `fe-only`.
 
 ### Phase 14 — `env-gate`
-Runs after `completeness-audit` (13), before `api-test` (15). List required services → wait for explicit user confirmation services are running.
+Runs after `completeness-audit` (13), before `api-test` (15).
+
+**HARD PRE-CHECK — Phase 13.5 must have run (do NOT skip):** before listing services, verify
+`{ticket_dir}/code-quality-review.md` exists (Phase 13.5 `code-quality-review` produced it), OR the
+`ticket_type` explicitly skips 13.5 per `ticket-types.md` (`doc-only`, `spike`, `hotfix`). If it is
+missing for a type that requires it → **STOP and run Phase 13.5 now**, before any env-gate / api-test /
+commit. The quality gate precedes live testing + commit; skipping it in the rush to api-test/commit is a
+recurring miss. Any `must-fix` finding loops to `implement` (11).
+
+List required services → wait for explicit user confirmation services are running.
 
 **Service restart reminder (mandatory):** also prompt: *"If you changed code in any running service during implement, restart it now to reload the updated DLL before testing."*
 
@@ -941,12 +950,14 @@ After y: stage explicit files only (never `git add -A`), commit. Format: `PROJEC
 **If n at 16b:** ask: *"What to change? (a) add/remove files, (b) rewrite commit message, (c) abort until next session."* On c → set `phase: blocked`, `blocked_reason: "user declined commit"`, `phase_before_block: api-test`.
 
 ### Phase 17 — `pre-push`
-Hard stops: FM-SECRETS-IN-DIFF, FM-UNPROTECTED-ENDPOINT.
-Warns: FM-MIGRATION-DOWN-EMPTY.
-Migration check: if plan mentioned migrations → ask if applied to local DB + tested on staging.
+**Delegates to the `push-code` skill** — the standard pre-push gate and the ONLY sanctioned push path. There is no plain `git push` fallback. push-code runs, in order: secrets/auth scan (the old pre-push hard stops FM-SECRETS-IN-DIFF, FM-UNPROTECTED-ENDPOINT, still enforced there) → final diff-scoped review (reuses `code-quality-review.md` §B) → FE-repo review (3b, FE repos only) → local analyzer run (`sonarscanner begin` + `dotnet build` → `Issues.json`; scoped `dotnet-coverage` → `coverage.xml`) → the two local gates (zero Sonar rule issues on new code, coverage on new code ≥ 80%) → push. **Duplication on new code is NOT checked locally** (needs a server upload that a sandboxed host blocks) — it stays with CI at 18.
+- Any gate blocks → push-code hands back here; write `update-implement.md` → re-run the implementation chain (11 → 12 → 13 → 13.5) → return to 17. Same loop shape as an env-gate failure.
+- Migration check (still owned here): if plan mentioned migrations → ask if applied to local DB + tested on staging. Warn FM-MIGRATION-DOWN-EMPTY.
+- Prereq: `projects.<active>.sonar` block + local toolchain (see `push-code/setup.md`). If absent, push-code stops at its own G-CONFIG/G-TOOLCHAIN gate — it does NOT fall through to an ungated push.
+- Projects with no `sonar` block never reach the analyzer portion — push-code still runs the review + secrets scan + push.
 
 ### Phase 18 — `ci-check`
-Ask: pass / not applicable / fail. On fail → FM-CI-FAILURE classify code vs env.
+Because push-code (17) already ran the SonarAnalyzer rules + new-code coverage locally and gated on them, CI Sonar should not discover *those* late. **It is still the only check for duplication on new code and for the server-side quality gate**, so this phase is a real gate, not a formality: ask pass / not applicable / fail. On fail → FM-CI-FAILURE classify code vs env. If CI Sonar diverges from the local gate (e.g. new-code baseline mismatch — see `push-code/sonar-local-gate.md` §6), treat it as a signal to reconcile the local scan, not just re-push.
 
 ### Phase 19 — `invariant-encoded`
 Skipped if `invariant-scope` (7) was skipped. Gaps warned, not blocked.
