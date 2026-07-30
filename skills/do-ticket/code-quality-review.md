@@ -128,9 +128,10 @@ Leave two durable markers so the next agent OR human is warned *even with no pip
 ```markdown
 # Code-Quality Review — <TICKET_ID>
 
-Diff reviewed: <N files, +X/-Y lines>  ·  Generated Phase 13.5 at <ISO>
+Diff reviewed: <N files, +X/-Y lines>  ·  Dimensions run: <list>  ·  Generated Phase 13.5 at <ISO>
+Not examined: <dimensions skipped by lite-mode / ticket_type + why · files excluded (generated, migrations) · "pre-existing debt in touched files — logged out-of-scope, not audited">
 
-## Verdict: <CLEAN | MUST-FIX (n) | NICE-TO-HAVE (n)>
+## Verdict: <CLEAN | BLOCKED | MUST-FIX (n) | NICE-TO-HAVE (n)>
 
 ## must-fix
 - [ ] <dim #> `file:line` — <one-line problem> → <one-line fix>
@@ -151,6 +152,12 @@ Diff reviewed: <N files, +X/-Y lines>  ·  Generated Phase 13.5 at <ISO>
 
 ### Gate (the teeth)
 
+- **`BLOCKED` — the diff resolved to nothing.** Per `_shared/measurement-integrity-protocol.md`: if
+  `git diff <base>...HEAD` yields 0 files (stale/wrong `base_branch`, wrong repo dir, changes still
+  unstaged in another worktree), the review found no problems *quite honestly* — and `CLEAN` here is the
+  single cheapest way to ship an unreviewed diff, because Phase 13.5 is the last human-shaped gate before
+  env-gate. Report `BLOCKED`, fix the diff resolution, re-run. **Never CLEAN on a zero-file scope**, and
+  never emit a verdict without the `N files, +X/−Y` header — a `CLEAN` with no counts is unauditable.
 - `must-fix` list non-empty → **do not proceed to env-gate.** Set `phase: code-quality-review` with the open list in `ticket-context.quality_findings[status=open]`. Loop: implement → regression → completeness-audit → code-quality-review. (FM-QUALITY-MUST-FIX.)
 - `must-fix` empty, `nice-to-have` present → surface the list once; user chooses per item `fix-now` / `defer`. Defer logs to `ticket-context.deferred_quality_items[]` and surfaces in the Phase 23 done summary + PR description.
 - All clean → 1-line summary (`Code-quality: clean (N hunks, 0 must-fix). Proceeding.`) and proceed. Mirror the Phase 9 auto-proceed ethos: don't interrupt when there's nothing worth interrupting for.

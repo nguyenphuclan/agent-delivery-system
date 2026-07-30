@@ -29,6 +29,21 @@ skills:
       - skills/scan-init/surface-layers.md
     last_synced_commit: e77e193
     last_synced_at: 2026-05-15
+    partial_sync:
+      at: 2026-07-30
+      synced: >
+        ONLY the measurement-integrity slice — verify-report.md gains Scope/Not-verified lines,
+        coverage prints its denominator, and a 0-file source walk is `blocked` not `pass`.
+      not_synced: >
+        Everything else since e77e193. Commit stays at e77e193 deliberately.
+
+  _shared:
+    source_files:
+      - _shared/measurement-integrity-protocol.md
+    last_synced_at: 2026-07-30
+    # Initial full sync of this protocol. The consumer table was made role-generic ("any
+    # env-verification skill", "any review skill") because four of the private consumers are skills
+    # this mirror does not carry — a named pointer to an absent skill is worse than a role name.
 
   do-ticket:
     source_files:
@@ -61,6 +76,16 @@ skills:
         Public already contained _field_impact.yaml + the dimension-11 base-value section, which
         this tracker's commit predates — so some earlier sync landed content without recording it.
         Treat both last_synced_commit values as lower bounds, not truth.
+    partial_sync_2:
+      at: 2026-07-30
+      synced: >
+        The measurement-integrity slice — FM-EMPTY-MEASUREMENT (new failure mode, fully generic) and
+        code-quality-review.md's BLOCKED verdict + Dimensions-run / Not-examined header.
+      not_synced: >
+        The 2b2b762..HEAD backlog is STILL open (see partial_sync above). Additionally not synced:
+        nothing else in do-ticket — SKILL.md and phase-contracts.yaml carry an unrelated in-flight
+        change that rode along in the same private commit and was never reviewed for sanitization.
+        Commit stays at 2b2b762.
 
   push-code:
     source_files:
@@ -70,8 +95,11 @@ skills:
       - skills/push-code/failure-modes.yaml
       - skills/push-code/parse-sonar-issues.py
       - skills/push-code/parse-new-coverage.py
-    last_synced_commit: 1c98c1e
-    last_synced_at: 2026-07-26
+    last_synced_at: 2026-07-30
+    # 2026-07-30: full delta synced (the "Gate summary must carry its scope" section — scope line,
+    # Not-examined line, the 4 silent-zero causes, prove-the-gate). Also scrubbed a PRE-EXISTING
+    # personal-project name leak on the last line of Scope & portability, regressed by the initial
+    # sync below.
     # Initial full sync (v2 no-upload local gate). Sanitized: sonar host, ticket ids, FE repo name,
     # shared-lib namespace, the machine-status table in setup.md, the endpoint-management product
     # names (now "managed-endpoint sandbox with restricted loopback"), and a personal-preference
@@ -123,6 +151,21 @@ never_mirrored:
       drives that org's own spec-review skill. 43 company tokens with no generic counterpart —
       sanitizing yields a fictional skill nobody outside can run. Reassess only if the meta-repo
       publishing pattern is ever generalized. Decided 2026-07-26.
+
+  knowledge-audit_and_learn:
+    skills: [knowledge-audit, learn]
+    reason: >
+      Both operate on the owner's personal knowledge stores (a note vault, agent memory, the local
+      project-docs tree, the skills folder, editor settings) — the store list, the priority ladder,
+      and the write-time sync hook are personal infrastructure, not delivery methodology. Sanitizing
+      yields a skill that audits stores the reader does not have. Decided 2026-07-30.
+      CONSEQUENCE, recorded so it is not rediscovered: the rule-hygiene work of 2026-07-30 is
+      therefore absent here — the `rule-contradiction` / `stale-reason` audit ops and the
+      checkable-vs-principle rule classification live in knowledge-audit, and the capture dimension
+      that feeds them lives in learn. The one otherwise-syncable piece (promote-observations'
+      `rule-conflict` routing) was ALSO skipped, because its only destination is
+      `/knowledge-audit --rules` — publishing it alone would give a reader a task type that routes
+      nowhere. Revisit together if knowledge-audit is ever generalized to a config-declared store list.
 
   web-test-automation:
     reason: >

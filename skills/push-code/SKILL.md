@@ -71,6 +71,34 @@ Thresholds come from `projects.<active>.sonar.gates`.
 - Issues on **pre-existing** lines in changed files are reported for context but do **not** block (they are not "new code").
 - **Duplication on new code** (`gates.duplication_new_code_pct_max`, default 0) can only be computed by the server after upload, which needs the (blocked) server upload → **deferred to CI's PR analysis**. Note this in the gate summary; do not claim it was checked locally.
 
+### Gate summary must carry its scope
+
+Follow `_shared/measurement-integrity-protocol.md`. **A bare `✅ gates green` is rejected output** — every
+gate line states the size of what it measured and the summary states what was not examined:
+
+```
+Sonar rule issues : 0 on 312 new lines across 14 files   (Issues.json: 4.2 MB, 1 847 issues parsed, 312 lines intersected)
+Coverage new code : 87.4% of 289 new production lines    (coverage.xml present, 36 uncovered)
+Not examined      : duplication-on-new-code (needs server upload — deferred to CI)
+                    pre-existing lines in changed files (context only, non-blocking)
+```
+
+**Empty scope is BLOCKED, never green** — and it is the likeliest failure of this pipeline, because
+each of these is a silent zero:
+
+| Zero | Usual cause |
+|---|---|
+| step 1 resolves 0 commits / 0 changed files | wrong `base_branch`, wrong repo dir, already-merged branch |
+| diff ∩ new lines = 0 while the diff is non-empty | the diff is all deletions or all non-production files — say so explicitly, don't print `0 issues` |
+| `Issues.json` missing or 0 issues across the whole solution | analyzers never ran (build served from cache, wrong `-p:` flags, `begin` step skipped) — see `sonar-local-gate.md` |
+| `coverage.xml` missing or 0 total lines | `dotnet-coverage` produced nothing; coverage is then `n/a`, **never** `100%` |
+
+On any of these: report `BLOCKED — measurement failed`, fix the measurement, re-run from step 4. Never
+push on a gate that measured nothing.
+
+**Prove the gate once.** A gate that has never gone red is unproven — inject a real violation (an
+over-complex method for S3776, ~30 untested new lines for coverage) and confirm RED before trusting it.
+
 ## Gate-failure loop (steps 3 / 5)
 
 On any block, do NOT push. Instead:
@@ -120,4 +148,4 @@ This pattern is **FE-repo-only**. .NET repos keep their normal `PROJ-<number>: <
 - The skill is a **generic algorithm**. All company data — Sonar host, org, token env-var name, gate thresholds, and how to resolve each repo's Sonar project key — lives in `projects.<active>.sonar`. No host or key is hard-coded here.
 - The scan command (exclusions, solution, coverage test command, project key) is **derived from each repo's own Sonar CI workflow** (`.github/workflows/*sonar*.y*ml` or `sonar-project.properties`), not duplicated in config — so it can never drift from what CI runs. See `sonar-local-gate.md` §2.
 - The two parsers (`parse-sonar-issues.py`, `parse-new-coverage.py`) are diff-driven and project-agnostic — they take `<repo> <base_ref> [coverage.xml]` and read only local artifacts.
-- Projects without a `sonar` block (e.g. Zuno, which has no SonarQube) never reach this skill; their pipelines keep their own push path.
+- Projects without a `sonar` block (no SonarQube server in their stack) never reach this skill; their pipelines keep their own push path.

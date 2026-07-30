@@ -142,6 +142,39 @@ modes:
         action: "Surface the test. Offer: rewrite to exercise SUT, mark as pre-existing-flaky, or delete."
         gate: G1
 
+  # -------------------------------------------------------------------------------------------
+  # The gate that measured NOTHING and reported success. Distinct from FM-FALSE-GREEN-TEST (a test
+  # that RAN but asserted nothing) — here the measurement never happened at all, so there is no test
+  # to inspect and nothing downstream will ever catch it: CI does not know which tests you meant to
+  # run, and QC's e2e does not know your unit suite was empty. A gate like this stays green forever.
+  # Every gate in this pipeline must therefore report the SIZE of what it measured, and treat an
+  # absent input as N/A — never as PASS.
+  # Canonical rule + the full list of empty shapes: _shared/measurement-integrity-protocol.md
+  # -------------------------------------------------------------------------------------------
+  - id: FM-EMPTY-MEASUREMENT
+    detect:
+      - "test run reports 0 tests (mistyped --filter, wrong test project, suite excluded by filter)"
+      - "coverage parsed from a file that was never generated → 0 uncovered lines → 100%"
+      - "diff-scoped review resolves to 0 files or 0 added lines (bad <base>, wrong repo dir)"
+      - "verification query returns 0 rows on a flow that should have persisted data"
+      - "gate emits a bare PASS/clean verdict with no count of what it examined"
+      - "a phase concludes from a string the agent itself wrote, with no artefact on disk"
+    severity: must-fix
+    pivots:
+      - id: report-na-not-pass
+        action: >
+          Do NOT record PASS. Record N/A and treat it as blocking. Show the raw tool output (runner
+          summary, file listing, row count) rather than the interpretation. Then fix the MEASUREMENT
+          first — filter, base ref, repo dir, missing artefact — and re-run. Only once the gate
+          reports a non-zero scope may its verdict be believed.
+        gate: G1
+      - id: prove-the-gate
+        action: >
+          If a gate has never once gone red, it has not been shown to work. Inject a violation you
+          know is real (a deliberately over-complex method, a removed authorisation attribute, 30
+          untested lines) and confirm the gate goes RED before trusting it again.
+        gate: G1
+
   - id: FM-LAYER-VIOLATION
     detect:
       - "using Microsoft.EntityFrameworkCore in Domain/"

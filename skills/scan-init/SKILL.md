@@ -2101,11 +2101,13 @@ Only `pass` permits `--establish-baseline`.
 
 Date: <iso>
 Project: <name>
-Result: pass | partial | fail
+Result: pass | partial | fail | blocked
+Scope: <n> source files walked across <m> repos · <k> index entries read
+Not verified: <artifacts with no source_globs · excluded dirs · repos skipped and why>
 
 ## Summary
 - Fingerprint drift: <n> artifacts
-- Coverage: <pct>% (uncovered: <n>, orphan: <n>)
+- Coverage: <pct>% — **<covered>/<total> files** (uncovered: <n>, orphan: <n>)
 - Legacy layout: <found-or-clear>
 - Schema violations: <n>
 
@@ -2128,6 +2130,13 @@ Result: pass | partial | fail
 
 ## Schema violations
 - domain/TaskEntity.yaml: missing field `lifecycle`
+
+**Coverage is `n/a`, never `100%`, when the denominator is zero.** Per
+`_shared/measurement-integrity-protocol.md`: a source walk that matched 0 files (bad `source_globs`, wrong
+repo root, an exclusion rule swallowing the tree) produces 0 uncovered / 0 total — which prints as perfect
+coverage and a `pass`. If `<total> == 0` the result is **`blocked`**; fix the walk and re-verify. Same for
+`<k> index entries read == 0`. State both numerators and denominators always, so the empty case cannot be
+mistaken for the clean one at a glance.
 
 ## Concerns
 - Missing `_concerns.yaml`: code/, db/, domain/, build/, conventions/  (5 folders)
