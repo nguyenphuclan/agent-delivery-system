@@ -2131,6 +2131,15 @@ Not verified: <artifacts with no source_globs · excluded dirs · repos skipped 
 ## Schema violations
 - domain/TaskEntity.yaml: missing field `lifecycle`
 
+**Preflight the source walk before computing any coverage number:**
+
+```
+python _shared/check-scope.py glob <repo_root> <source_glob> [<source_glob>...]
+python _shared/check-scope.py reconcile <files_walked> <files_classified> "source files"
+```
+
+Exit 2 → the walk or the classification is broken; report `blocked` and fix it before writing a report.
+
 **Coverage is `n/a`, never `100%`, when the denominator is zero.** Per
 `_shared/measurement-integrity-protocol.md`: a source walk that matched 0 files (bad `source_globs`, wrong
 repo root, an exclusion rule swallowing the tree) produces 0 uncovered / 0 total — which prints as perfect

@@ -91,6 +91,29 @@ wired gate, **inject a violation you know is real** and confirm it goes RED:
 
 Record that it went red once. A gate proven once is worth more than three gates never exercised.
 
+### `check-scope.py` — the runnable half
+
+A gate written only as prose is a **principle-rule**: it never visibly clashes and never dies, so
+nobody finds out when it stops being applied. `_shared/check-scope.py` turns the mechanical half of
+each gate into a **checkable-rule** — one command, exit 0 or exit **2 = BLOCKED**, no exit 1 because
+it never judges the subject, only the measurement.
+
+```
+python _shared/check-scope.py diff <repo> <base_ref>            # changed files + added lines
+python _shared/check-scope.py glob <root> <pattern> [pattern…]  # walk matched >0 files
+python _shared/check-scope.py files <path> [path…]              # artefacts exist and are non-empty
+python _shared/check-scope.py reconcile <declared> <observed> [label]
+```
+
+Run it **before** the gate, not after. Exit 2 means stop and fix the measurement; its stdout `SCOPE`
+line is the one you paste into your own report, so the number a reader sees came from a tool rather
+than from the agent's recollection.
+
+**Proven red 2026-07-30** — 11 injected violations, all exit 2: bogus base ref · empty diff ·
+not-a-git-repo · deletion-only diff · pattern matching nothing · wrong root · missing artefact ·
+declared 0 · declared 14 vs accounted 9 · non-numeric counts · unknown mode. 4 pass cases exit 0 with
+a `SCOPE` line. The fixtures are a `git init`, two commits, and four numbers — re-derive in a minute.
+
 ## How each consumer applies it
 
 | Consumer | Its scope line | Its N/A case |

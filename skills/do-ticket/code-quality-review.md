@@ -152,6 +152,12 @@ Not examined: <dimensions skipped by lite-mode / ticket_type + why · files excl
 
 ### Gate (the teeth)
 
+- **Preflight, before reading any hunk** — one command, and paste its `SCOPE` line into the report header:
+  ```
+  python _shared/check-scope.py diff <repo> <base_branch>
+  ```
+  Exit 2 → stop, fix the diff resolution, do not review. Exit 0 → its `SCOPE` line **is** the
+  `Diff reviewed:` header. Run it per repo on a multi-repo ticket.
 - **`BLOCKED` — the diff resolved to nothing.** Per `_shared/measurement-integrity-protocol.md`: if
   `git diff <base>...HEAD` yields 0 files (stale/wrong `base_branch`, wrong repo dir, changes still
   unstaged in another worktree), the review found no problems *quite honestly* — and `CLEAN` here is the
