@@ -66,7 +66,31 @@ Two helper scripts live in this skill dir; both take `<repo> <base_ref>` and rea
    ```
    Intersects `coverage.xml` covered/executable lines with the diff-added lines of changed **production** files (excludes the test project via `test_marker`, default `.MSTest`), prints per-file + overall %. **Exit 1 if overall < `min_pct`** (default 80) → FM-COVERAGE-LOW; prints the uncovered new lines to fix.
 
-**Decision:** both exit 0 → step 6 (push). Either non-zero → the gate-failure loop in `SKILL.md`. **Duplication** on new code is not computed here (needs the server) — state that it's deferred to CI, don't imply it passed.
+**Decision — three exit codes, not two** (`_shared/measurement-integrity-protocol.md`):
+
+| Exit | Meaning | What to do |
+|---|---|---|
+| **0** | clean, over a **non-zero** scope printed on the `SCOPE` line | → step 6 (push) |
+| **1** | RED — a real finding (issue on a new line / coverage below gate) | → gate-failure loop in `SKILL.md`. **Fix the code.** |
+| **2** | **BLOCKED — the measurement did not happen** | **Fix the MEASUREMENT, not the code**, then re-run from step 4 |
+
+Exit 2 fires on: a base ref that doesn't resolve, an empty diff, no `Issues.json` (analyzers never
+ran — a cached/no-op build writes none), an unreadable SARIF, a missing or empty `coverage.xml`, or a
+coverage report that covers **none** of the changed production files. Never route exit 2 into the
+implementation chain — there is no defect to fix, and looping the developer on it burns a cycle on a
+tooling problem. Never treat it as green either: **`0/0` coverage is 100%**, which is the most
+convincing false green this pipeline can produce.
+
+Both scripts print a `SCOPE` line (files, added lines, artefacts read) and a `NOT EXAMINED` line
+before any verdict. A verdict without them means an older copy of the script is on disk.
+
+**Proven red** (2026-07-30, a real .NET repo + a synthetic SARIF fixture): all four blocked cases
+returned 2, a seeded S3400 on an added line returned 1, and the same issue on a pre-existing line
+returned 0 and was listed as context. Before that fix all four blocked cases returned **0 with
+`0 issues` / `0/0 = 100.0%`** — the gate had never been exercised against an empty input.
+
+**Duplication** on new code is not computed here (needs the server) — state that it's deferred to CI,
+don't imply it passed.
 
 ## 5. Notes / gotchas
 

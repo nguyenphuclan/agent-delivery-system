@@ -96,8 +96,15 @@ each of these is a silent zero:
 On any of these: report `BLOCKED — measurement failed`, fix the measurement, re-run from step 4. Never
 push on a gate that measured nothing.
 
+Both parsers enforce this in code: **exit 2 = BLOCKED**, distinct from 1 (real finding) and 0 (clean).
+Exit 2 goes to a measurement fix and a re-run from step 4 — **never into the implementation chain**,
+because there is no defect to fix. See `sonar-local-gate.md` §4 for the full exit-code table.
+
 **Prove the gate once.** A gate that has never gone red is unproven — inject a real violation (an
 over-complex method for S3776, ~30 untested new lines for coverage) and confirm RED before trusting it.
+*Done 2026-07-30:* all four blocked cases previously returned **0 with `0 issues` / `0/0 = 100.0%`**;
+they now return 2, while a seeded issue on an added line still returns 1 and one on a pre-existing line
+still returns 0. The gate has been red, and is still green for the right reasons.
 
 ## Gate-failure loop (steps 3 / 5)
 

@@ -96,10 +96,13 @@ skills:
       - skills/push-code/parse-sonar-issues.py
       - skills/push-code/parse-new-coverage.py
     last_synced_at: 2026-07-30
-    # 2026-07-30: full delta synced (the "Gate summary must carry its scope" section — scope line,
-    # Not-examined line, the 4 silent-zero causes, prove-the-gate). Also scrubbed a PRE-EXISTING
-    # personal-project name leak on the last line of Scope & portability, regressed by the initial
-    # sync below.
+    # 2026-07-30: full delta synced, in two passes. (1) The "Gate summary must carry its scope"
+    # section — scope line, Not-examined line, the 4 silent-zero causes, prove-the-gate. Also
+    # scrubbed a PRE-EXISTING personal-project name leak on the last line of Scope & portability,
+    # regressed by the initial sync below. (2) The prove-the-gate FIX: both parsers gained
+    # exit 2 = BLOCKED — they returned 0 with "0 issues" / "0/0 = 100.0%" on four measurements that
+    # never happened — plus the exit-code table in sonar-local-gate.md. Parsers copied verbatim
+    # (still project-agnostic) and smoke-tested from this copy in both the blocked and RED states.
     # Initial full sync (v2 no-upload local gate). Sanitized: sonar host, ticket ids, FE repo name,
     # shared-lib namespace, the machine-status table in setup.md, the endpoint-management product
     # names (now "managed-endpoint sandbox with restricted loopback"), and a personal-preference
