@@ -86,9 +86,19 @@ skills:
         The measurement-integrity slice — FM-EMPTY-MEASUREMENT (new failure mode, fully generic) and
         code-quality-review.md's BLOCKED verdict + Dimensions-run / Not-examined header.
       not_synced: >
-        The 2b2b762..HEAD backlog is STILL open (see partial_sync above). Additionally not synced:
-        nothing else in do-ticket — SKILL.md and phase-contracts.yaml carry an unrelated in-flight
-        change that rode along in the same private commit and was never reviewed for sanitization.
+        The 2b2b762..HEAD backlog is STILL open (see partial_sync above). Also not synced: the
+        phase-hardening work in SKILL.md + phase-contracts.yaml.
+        CORRECTION (this note previously called that work "an unrelated in-flight change" — it is not,
+        and the mislabel would have sent the next sync past the strongest part of the backlog): it is
+        the SAME measurement-integrity feature applied to the pipeline phases — Phase 10
+        red_count_contract (0 failed at RED is a STOP, not a pass), Phase 12 re-runs the suite instead
+        of trusting a "Regression check: PASS" string in a markdown file the agent wrote itself (three
+        states PASS/FAIL/N-A, baseline + red_count reconciliation), Phase 13 and 13.5 scope_evidence,
+        Phase 15 api-test evidence-on-disk + the 0-rows-is-N/A rule. Motivated by a real
+        local-green/CI-red incident where reflection callers and DB integration classes never ran
+        locally. It IS syncable and generic; it needs the ticket id and the repo-specific
+        build/test.yaml phrasing generalised. Do it as a dedicated pass with the comment-standard
+        table, then advance last_synced_commit.
         Commit stays at 2b2b762.
 
   push-code:
