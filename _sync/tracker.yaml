@@ -40,7 +40,11 @@ skills:
   _shared:
     source_files:
       - _shared/measurement-integrity-protocol.md
+      - _shared/check-scope.py
     last_synced_at: 2026-07-30
+    # Pass 2: check-scope.py (the runnable half — diff/glob/files/reconcile, exit 2 = BLOCKED),
+    # copied verbatim and smoke-tested from this copy in all four modes. Its wiring reached only
+    # the two consumers this mirror carries (code-quality-review, scan-init verify).
     # Initial full sync of this protocol. The consumer table was made role-generic ("any
     # env-verification skill", "any review skill") because four of the private consumers are skills
     # this mirror does not carry — a named pointer to an absent skill is worse than a role name.
