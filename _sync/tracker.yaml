@@ -27,15 +27,16 @@ skills:
     source_files:
       - skills/scan-init/SKILL.md
       - skills/scan-init/surface-layers.md
-    last_synced_commit: e77e193
-    last_synced_at: 2026-05-15
-    partial_sync:
-      at: 2026-07-30
-      synced: >
-        ONLY the measurement-integrity slice — verify-report.md gains Scope/Not-verified lines,
-        coverage prints its denominator, and a 0-file source walk is `blocked` not `pass`.
-      not_synced: >
-        Everything else since e77e193. Commit stays at e77e193 deliberately.
+    last_synced_commit: 91ae36b
+    last_synced_at: 2026-08-29
+    sync_note: >
+      2026-08-29 FULL sync of SKILL.md. Landed: the doc-durability global content rule, and the
+      schema + fingerprint fixes — V-4 now requires `entity, identity, lifecycle` instead of
+      `source, fields` (the old pair demanded exactly what doc-durability-protocol bans, so no
+      store could ever pass), the entity template, the git-blob-sha Fingerprint definition
+      replacing the mtime one, `fingerprint_pending`, the placeholder refusal on both baseline
+      commands, the F-2/F-3 ordering trap, and "never computed" blocking `pass`.
+      surface-layers.md unchanged since the last sync.
 
   _shared:
     source_files:
