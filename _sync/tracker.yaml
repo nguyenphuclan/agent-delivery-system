@@ -280,7 +280,7 @@ skills:
         ticket_cost uses a generic --dispatcher-skill option; check_worktree keeps only repo
         freshness + running services (ports from .worktree-meta.yaml); shared_store lock dir is
         ~/.claude/locks (CLAUDE_LOCK_DIR) and its lock-release was FIXED for Windows (retried
-        unlink, rename-then-check stale clear) - the private copy still has that bug.
+        unlink, rename-then-check stale clear); the same fix was ported back to private in 7100ce6.
       skipped: >
         decision_log.py, agent_learning_report.py, lesson_eval/, tool_scorecard.py (see
         never_mirrored); patch_cs.py, postman_run.py, run-tests.ps1 (machine or non-public skill).
