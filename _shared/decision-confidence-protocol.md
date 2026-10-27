@@ -144,10 +144,10 @@ decisions:
 - If user never touches `medium` → maybe everything `medium` should be `high` (under-calibrated)
 - If `low` decisions cluster around same pattern → propose adding it to patterns/_index.yaml so it becomes `high`
 
-## Vietnamese summary (for user UX)
+## Summary (what the user sees)
 
-Khi user xem output, sẽ thấy:
-- **Confidence summary** ở đầu plan/summary
-- **Review-priorities.md** với CRITICAL/IMPORTANT sections
-- **Decision cards** chi tiết cho mỗi quyết định không hiển nhiên
-- AI chỉ block bạn khi có decision đáng phân vân — không phải mọi lần
+When the user reads the output, they see:
+- A **confidence summary** at the top of the plan/summary
+- **review-priorities.md** with CRITICAL/IMPORTANT sections
+- **Decision cards** with detail for each decision that is not obvious
+- The AI only stops you for a decision that is truly unclear — not every time

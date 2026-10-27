@@ -1,6 +1,6 @@
 ---
 name: requirements-clarification-protocol
-description: Proactively generates 80-90% of the questions a senior dev would ask PO before committing to a ticket. Two-tier reminder system — Tier 1 gentle after analyze, Tier 2 sharp with rework-cost framing before commit if user dismissed without follow-up. Targets the root cause of "AI làm đúng nhưng thiếu" — unclear requirements that cause 5-10x rework.
+description: Proactively generates 80-90% of the questions a senior dev would ask PO before committing to a ticket. Two-tier reminder system — Tier 1 gentle after analyze, Tier 2 sharp with rework-cost framing before commit if user dismissed without follow-up. Targets the root cause of "the AI did it right but left things out" — unclear requirements that cause 5-10x rework.
 ---
 
 # Requirements Clarification Protocol
@@ -398,13 +398,13 @@ clarification:
 - ❌ Auto-add to pitfall registry without user confirmation.
 - ❌ Make `accept-rework` a 1-key choice. Friction proportional to risk.
 
-## Vietnamese summary
+## Summary
 
-Mỗi ticket, AI sẽ:
-1. **Sau analyze:** đưa 5-10 câu hỏi quan trọng (CRITICAL = rework probability > 70%) cần confirm với PO. User chọn answer / defer / dismiss. **Không block flow.**
-2. **Trước commit:** nếu vẫn có deferred/dismissed mà chưa follow-up → reminder lần 2 với:
-   - Cost cụ thể: "78% rework probability, ~7-12 giờ qua 2-3 PR cycles"
-   - Past incident cụ thể: "PROJECT-9821 đã rework 4h vì lý do này"
-   - Buộc user chọn 1 trong 3: `pause` (default), `commit-with-flags`, `accept-rework <reason>`
+For each ticket, the AI will:
+1. **After analyze:** give 5-10 key questions (CRITICAL = rework probability > 70%) to confirm with the PO. The user picks answer / defer / dismiss. **The flow is not blocked.**
+2. **Before commit:** if deferred/dismissed questions still have no follow-up → a second reminder with:
+   - A concrete cost: "78% rework probability, ~7-12 hours over 2-3 PR cycles"
+   - A concrete past incident: "PROJECT-9821 needed 4h of rework for this reason"
+   - The user must pick 1 of 3: `pause` (default), `commit-with-flags`, `accept-rework <reason>`
 
-Lười không sao — Tier 2 sẽ đập vào mặt, default = pause, không thoát được.
+Skipping Tier 1 is fine — Tier 2 will stop you, the default is `pause`, and there is no silent way past it.

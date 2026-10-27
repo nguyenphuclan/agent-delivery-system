@@ -42,6 +42,10 @@ Skipped for `refactor`, `hotfix`, `doc-only`, `migration-only`, `spike`.
 ## Phase 21 — `pr-ready`
 **Update cycle handling:** if `state.pr_count > 0` → check if PR already exists for this branch (`gh pr view` or equivalent). If yes → `gh pr edit` to update description, not create. If no (PR was closed/merged) → confirm base branch is current before `gh pr create`.
 
+**Before the PR description is written:** `python _shared/tools/check_artifacts.py {ticket_dir} pr --type <ticket_type>`.
+Exit 2 = `plan.md` or `implement-summary.md` (the two files the description is built from) is missing or
+empty — produce it first. If the tool cannot run, open both by hand and check they exist and describe this change.
+
 Show generated PR description → wait for explicit user `y/n` before `gh pr create` / `gh pr edit`.
 
 > **Windows note:** if `gh` not in PATH, fall back: `powershell -Command "& 'C:\Program Files\GitHub CLI\gh.exe' pr create ..."`.
@@ -59,11 +63,17 @@ Each review round is a session boundary (S3 in the router § Sessions): the next
 **Multi-PR base:** `pr_count >= 2` and prior PR merged → rebase on latest main first.
 
 ## Phase 23 — `done`
-- **HARD CHECK before the Jira status moves on:** open what the ticket owes and check it by hand —
+- **HARD GATE before the Jira status moves on:** `python _shared/tools/check_artifacts.py {ticket_dir} done --type <ticket_type>`.
+  Exit 2 = something the ticket owes is missing or hollow (`run-telemetry.yaml`, `implement-summary.md`).
+  Fix it first; do not move the status on a red gate. A PASS means the record exists, so still open what the
+  ticket owes and check it by hand — and if the tool cannot run, this is the whole check:
   `run-telemetry.yaml` (parses, holds the required minimum from `run-telemetry-schema.md`, describes this run),
   `implement-summary.md` (carries the Phase 12 `Regression:` line), and every other output the type's phases
   declare in `phase-contracts.yaml`. Something missing or hollow → fix it first; do not move the status on a
   failed check.
+- **Cost (optional, no model call):** `python _shared/tools/ticket_cost.py <TICKET_ID>` reads the Claude Code
+  transcripts on disk (default `~/.claude/projects`) and prints $ per part and main session vs sub-agent.
+  Put the total in the summary below. Skip it when no transcripts are on disk.
 - Worktree cleanup if applicable.
 - **DPS session cleanup:** if `ticket-context.dps_session_id` set → *"This ticket originated from DPS session `<session_id>`. Close it now? (y/n)"* → yes: move folder from `open/` to `closed/`, write `## Resolution Summary: resolved via <TICKET_ID>` at top of `investigation.md`.
 - Print summary (required structure): (1) ticket ID + PR link, (2) phases completed + any skipped with skip reason, (3) total duration from `run-telemetry.yaml`, (4) any unresolved items — `completeness_gaps[status=deferred]`, `deferred_review_items`, `deferred_quality_items`, unresolved `requirements-clarifications.yaml` entries, and every open `M2-open` decision in `decisions[]`. If any unresolved items exist → list them as follow-up actions.
@@ -81,7 +91,7 @@ Ask the user these 3 questions, one at a time. Answers written to `run-telemetry
 > **3. Missing:** Was there anything you expected to see in a phase output that wasn't there?
 > *(one line per item: which phase + what was missing, or "none")*
 
-After collecting answers → write to `quality_signals` per schema. Then close `run-telemetry.yaml` (set `ended_at`, `duration_seconds`). These signals feed `/learn` → concrete SKILL.md proposals after ≥2 occurrences.
+After collecting answers → write to `quality_signals` per schema. When `ticket-triage.md` exists, also fill `triage.downstream` from what this run recorded (must-fix count, implement iterations, replans, CI reds, review rounds — schema in `run-telemetry-schema.md`), so the Phase 9.7 score can be graded. Then close `run-telemetry.yaml` (set `ended_at`, `duration_seconds`). These signals feed `/learn` → concrete SKILL.md proposals after ≥2 occurrences.
 
 **Post-ticket learn prompt (mandatory — runs after PR is merged and ticket is closed):**
 

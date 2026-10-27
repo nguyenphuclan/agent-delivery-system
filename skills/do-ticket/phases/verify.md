@@ -59,8 +59,19 @@ was found. State the expected row count *before* running, then reconcile.
 
 Runs after phase 15 (`api-test`). Two sub-steps in order: 16a → 16b.
 
-**HARD PRE-CHECK — `run-telemetry.yaml` must exist and hold the required minimum (do NOT skip).** Before the
-commit prompt, open `{ticket_dir}/run-telemetry.yaml` and check it by hand:
+**HARD PRE-CHECK — run the artifact gate (do NOT skip):**
+
+```bash
+python _shared/tools/check_artifacts.py {ticket_dir} pre-commit --type <ticket_type>
+```
+Exit 2 = BLOCKED; it names each missing or hollow file (`code-quality-review.md`, `plan.md`,
+`run-telemetry.yaml`, the Phase 12 `Regression:` line in `implement-summary.md`, `test-evidence`, and
+`legacy-contract.md` while gates are armed — minus what the type skips). A PASS means the record exists,
+not that it is right — so still do the `run-telemetry.yaml` read below.
+
+**`run-telemetry.yaml` must exist and hold the required minimum.** Before the commit prompt, open
+`{ticket_dir}/run-telemetry.yaml` and check it by hand (if the tool cannot run, also open each other file
+listed above and check it exists, is non-empty, and measured something):
 - it parses as YAML;
 - it holds the **required minimum** subset defined in `run-telemetry-schema.md`: `ticket_id`, `ticket_type`,
   `schema_version`, `started_at`, `phases[]` (non-empty — one entry per phase run so far), and the three lists
@@ -103,8 +114,16 @@ After y: stage explicit files only (never `git add -A`), commit. Format: `PROJEC
 
 ## Phase 17 — `pre-push`
 
-**HARD PRE-CHECK — open the artifacts, do not eyeball the folder.** For each output the type's phases owe
-(per `phase-contracts.yaml` and `ticket-types.md`), check by hand:
+**HARD PRE-CHECK — run the artifact gate, do not eyeball it:**
+
+```bash
+python _shared/tools/check_artifacts.py {ticket_dir} pre-push --type <ticket_type>
+```
+Exit 2 = BLOCKED; it names each missing or hollow file. It also catches a file that exists but
+measured nothing, and a `.yaml` that does not parse — both of which a plain file-exists test passes.
+
+The tool cannot judge the third point below, so do that one by hand after a PASS. If the tool cannot run,
+do all three by hand for each output the type's phases owe (per `phase-contracts.yaml` and `ticket-types.md`):
 - the file exists, and a `.yaml` file parses;
 - it **measured something**: the scope line is non-zero (tests run, change-types, files reviewed, flows
   with evidence) — a file that exists but measured nothing fails, though a plain file-exists test passes it;

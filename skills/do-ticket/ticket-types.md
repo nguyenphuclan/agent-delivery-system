@@ -82,7 +82,7 @@ Rather than restate ten lists, apply these three insertions to whichever list th
 | Phase | Slots | Types |
 |---|---|---|
 | `blast-radius` (8.7) | immediately **before** `plan` | every type except `doc-only` and `spike` (skip) — `hotfix` runs the **lite** version (touched-method counts only, no inventory) |
-| `legacy-contract` (9.8) | after `plan` / `fe-impact-check`, **before** `unit-tests` (or `behavior-diff-tests`) | only when `blast-radius` armed a gate. `armed_gates: none` → skipped, which is the normal case |
+| `legacy-contract` (9.8) | after `plan` / `fe-impact-check` / `triage`, **before** `unit-tests` (or `behavior-diff-tests`) | only when `blast-radius` armed a gate. `armed_gates: none` → skipped, which is the normal case |
 | `contract-recheck` (12.7) | after `regression`, **before** `completeness-audit` (or `code-quality-review` when the type has no audit) | same condition — only when gates were armed |
 
 Two hard consequences, both also stated in `phases/design.md` and `phases/build.md`:
@@ -105,7 +105,7 @@ The three gate phases above are **not repeated** in each list — apply them per
 
 ```
 branch → rebase-check → requirements → enrich → analyze → invariant-scope → test-cases → plan
-  → fe-impact-check → unit-tests → implement → regression → completeness-audit → code-quality-review
+  → fe-impact-check → triage → unit-tests → implement → regression → completeness-audit → code-quality-review
   → env-gate → api-test → commit → pre-push → ci-check → invariant-encoded → qa-checklist
   → pr-ready → pr-review → promote-knowledge
 ```
@@ -113,6 +113,7 @@ branch → rebase-check → requirements → enrich → analyze → invariant-sc
 `enrich` runs PO-proxy enrichment (project-docs only, no source code). Always pauses for user review on first run.
 `code-quality-review` (Phase 13.5) is the diff-scoped quality gate — full version here. `must-fix` findings loop back to implement.
 `fe-impact-check` auto-skips when plan touches no FE-consumed endpoint.
+`triage` (Phase 9.7) writes the one-page `ticket-triage.md` — how much of the *user's* review attention this ticket deserves. Advisory only; gates nothing.
 
 Risk profile baseline: medium. All standard gates apply.
 
@@ -121,12 +122,13 @@ Risk profile baseline: medium. All standard gates apply.
 ### `bugfix-small`
 
 ```
-branch → rebase-check → requirements (lite) → plan (lite) → unit-tests → implement
+branch → rebase-check → requirements (lite) → plan (lite) → triage → unit-tests → implement
   → regression → code-quality-review (lite) → commit → pre-push → ci-check → qa-checklist
   → pr-ready → pr-review → promote-knowledge
 ```
 
 `code-quality-review (lite)` = dimensions 1,2,4,6,8 only (structural + test core).
+`triage` runs but its **confidence is capped at `medium`** — a lite plan cannot support `high`. This is the type where the *looks-easy-but-isn't* trap fires most often, so it is deliberately NOT skipped.
 
 **Lite mode rules:**
 - `requirements (lite)` — extract only the bug repro + expected behavior. No full BA analysis.
@@ -141,7 +143,7 @@ branch → rebase-check → requirements (lite) → plan (lite) → unit-tests �
 
 ```
 branch → rebase-check → requirements → investigate (domain-problem-solver)
-  → analyze → test-cases → plan → fe-impact-check → unit-tests → implement → regression
+  → analyze → test-cases → plan → fe-impact-check → triage → unit-tests → implement → regression
   → completeness-audit → code-quality-review → env-gate → api-test → commit → pre-push
   → ci-check → qa-checklist → pr-ready → pr-review → promote-knowledge
 ```
@@ -179,7 +181,7 @@ Risk profile: critical. Requires G3 confirmation before hotfix-deploy.
 ### `refactor`
 
 ```
-branch → rebase-check → plan → behavior-diff-tests → implement → regression
+branch → rebase-check → plan → triage → behavior-diff-tests → implement → regression
   → code-quality-review (lite) → commit → pre-push → ci-check → pr-ready → pr-review → promote-knowledge
 ```
 
@@ -229,12 +231,13 @@ branch → doc-edit → commit → pr-ready → pr-review
 ### `migration-only`
 
 ```
-branch → plan → migration-script → dry-run-test → implement (apply migration)
+branch → plan → triage → migration-script → dry-run-test → implement (apply migration)
   → regression → code-quality-review → pre-push (with G3) → commit → pr-ready → pr-review → promote-knowledge
 ```
 
 `code-quality-review` (Phase 13.5) reviews any application/data-access code shipped alongside the migration (not the SQL script itself).
 
+- `triage` will land on **RED** for any migration that rewrites or moves existing rows (VETO). Expected, not a bug — the report's job here is to say *which* axis besides risk is also expensive.
 - `plan` MUST include rollback script + data risk analysis.
 - `dry-run-test` — apply migration to throwaway DB clone, verify Down() works.
 - G3 hard gate before `commit`: user confirms migration tested on staging.
@@ -247,7 +250,7 @@ Risk profile: critical. `migration-script` artifact lands in `public-project-doc
 ### `fe-only`
 
 ```
-branch → rebase-check → requirements → enrich → analyze → test-cases → plan → unit-tests (Jest)
+branch → rebase-check → requirements → enrich → analyze → test-cases → plan → triage → unit-tests (Jest)
   → storybook-stories → implement → e2e-smoke → regression → code-quality-review → commit
   → pre-push → ci-check → qa-checklist → pr-ready → pr-review → promote-knowledge
 ```
@@ -260,6 +263,18 @@ branch → rebase-check → requirements → enrich → analyze → test-cases �
 - Skip: `api-test`, `invariant-*` (no domain change).
 
 ---
+
+## Triage coverage per type
+
+`triage` (Phase 9.7) prices review effort for the human. Rubric: `triage-scoring.md`.
+
+| Type | Runs? | Note |
+|------|-------|------|
+| `crud-feature`, `bugfix-investigated`, `fe-only` | yes | full confidence available |
+| `bugfix-small`, `bugfix-regression`, `refactor` | yes | confidence capped at `medium` (lite plan) |
+| `migration-only` | yes | VETO expected → RED |
+| `doc-only`, `spike` | no | no code plan to price |
+| `hotfix` | no | critical by definition; pricing it would only invite shortcuts under time pressure |
 
 ## Promotion rules (mid-flow type changes)
 

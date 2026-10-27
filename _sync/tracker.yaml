@@ -82,6 +82,7 @@ skills:
       - skills/do-ticket/phases/*.md
       - skills/do-ticket/blast-radius.md
       - skills/do-ticket/legacy-contract.md
+      - skills/do-ticket/triage-scoring.md
     last_synced_commit: b76f7fd
     last_synced_at: 2026-10-27
     sync_2026_10_27:
@@ -102,9 +103,14 @@ skills:
         Ph21 spec handoff; Phase 24 QC evidence (won't sync: that skill is not mirrored);
         desktop-app-only CI (auto-fix events, PR binding, usage/cost); private helper scripts (rewritten
         as manual checks); company-specific CI notes; internal assessment/experiment docs.
-      deferred: >
-        Triage unit (triage-scoring.md + its hooks in Ph2/Ph12/contracts/telemetry/ticket-types).
-        Generic and strong, but written in Vietnamese - needs an English pass first.
+      triage: >
+        Round 2, same day: the triage unit (triage-scoring.md + its hooks in Ph2/9.7/Ph12/contracts/
+        telemetry/ticket-types/update) is now SYNCED, translated to English. Axis keys renamed
+        (spread, volume, difficulty, ambiguity, risk, verifiability); modes GREEN/AMBER/ORANGE/RED.
+        Skipped: the owner section (needs a private owner profile).
+      tools_wired: >
+        Round 2: the manual checks now call `_shared/tools/` (check_artifacts, ticket_fingerprints,
+        optional ticket_cost); the manual text stays as the fallback.
     partial_sync:
       at: 2026-07-26
       synced: >
@@ -250,6 +256,35 @@ skills:
         FIRST sync of all 4 files. Partner names made fictional; the spec-publishing phase removed;
         routes to non-public skills made generic.
 
+  _shared/tools:
+    source_files:
+      - _shared/tools/check_artifacts.py
+      - _shared/tools/test_check_artifacts.py
+      - _shared/tools/ticket_fingerprints.py
+      - _shared/tools/test_ticket_fingerprints.py
+      - _shared/tools/shared_store.py
+      - _shared/tools/test_shared_store.py
+      - _shared/tools/check_skill_frontmatter.py
+      - _shared/tools/check_flow_registries.py
+      - _shared/tools/ticket_cost.py
+      - _shared/tools/test_ticket_cost.py
+      - _shared/tools/check_worktree.py
+    last_synced_commit: b76f7fd
+    last_synced_at: 2026-10-27
+    sync_2026_10_27:
+      synced: >
+        First sync. All tests pass from the public copy. Wired into do-ticket phases, push-code
+        step 2b, promote-observations STEP 4/5, worktree-setup Phase 0, scan-init FL-8, README.
+      changed_vs_private: >
+        `# BET/# OWNER` lines stripped; check_artifacts manifest has no non-public phases;
+        ticket_cost uses a generic --dispatcher-skill option; check_worktree keeps only repo
+        freshness + running services (ports from .worktree-meta.yaml); shared_store lock dir is
+        ~/.claude/locks (CLAUDE_LOCK_DIR) and its lock-release was FIXED for Windows (retried
+        unlink, rename-then-check stale clear) - the private copy still has that bug.
+      skipped: >
+        decision_log.py, agent_learning_report.py, lesson_eval/, tool_scorecard.py (see
+        never_mirrored); patch_cs.py, postman_run.py, run-tests.ps1 (machine or non-public skill).
+
 # ---------------------------------------------------------------------------
 # NEVER MIRRORED — decided, do not re-litigate each sync.
 # ---------------------------------------------------------------------------
@@ -299,3 +334,18 @@ never_mirrored:
     reason: >
       They work on the owner's personal stores or the owner's own app/session setup, or route to
       skills this mirror does not carry. Decided 2026-09-03 to 2026-10-16.
+
+  owner_measurement_tools:
+    files: [_shared/tools/decision_log.py, _shared/tools/agent_learning_report.py,
+            _shared/tools/lesson_eval/, _shared/tools/tool_scorecard.py]
+    reason: >
+      Decided 2026-10-27. They measure the owner's own agent memory, autonomy and scripts from
+      the owner's transcripts (one has a phrase rubric in the owner's language; one audits the
+      private BET/OWNER header convention). Personal measurement, not delivery method.
+
+  autorun_and_learn-crud-gui:
+    skills: [autorun, learn-crud-gui]
+    reason: >
+      Decided 2026-10-27. autorun runs do-ticket headless on the owner's own machine (scheduled
+      task, owner-active detection). learn-crud-gui depends on learn-crud and a company rule for
+      GUI proof per AC. Neither is reusable without the owner's setup.

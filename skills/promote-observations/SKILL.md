@@ -162,7 +162,22 @@ candidates — STEP 6 still writes an empty `promoted.md`.
 
 **`observations.md` is a shared file.** Several sessions may append to it while this one runs.
 A read-modify-write from the copy you read at STEP 1 silently deletes whatever landed in between,
-and the report then shows a smaller number as if it were true. So:
+and the report then shows a smaller number as if it were true. So every write goes through the lock in
+`_shared/tools/shared_store.py`:
+
+```python
+import sys
+sys.path.insert(0, "_shared/tools")   # this repo's _shared/tools folder
+from shared_store import append_lines, rewrite
+
+append_lines(DEST, [line, ...], label="promote-observations")   # add
+rewrite(OBS, drain_fn, label="promote-observations")             # drain (STEP 5)
+```
+
+`rewrite` hands `drain_fn` the file as it is **inside** the lock (the CURRENT text), never the copy you
+read at STEP 1. Re-derive which lines to drop from that text — do not carry a line list across the lock
+boundary. `append_lines` skips a line already present, so a retry cannot double-write. If the module cannot
+be imported, follow the same rules by hand:
 
 - To **add**, append. Never rewrite the whole file to add a line.
 - To **rewrite** (STEP 5 drain), re-read the file at the moment of writing and decide which lines to
@@ -290,9 +305,10 @@ After all writes succeed, remove promoted entries from `observations.md`.
 
 **Remove**: every entry that was just written to a destination (including DELETE-only entries).
 
-Re-read the file now, drop the promoted entries from that fresh text by matching their content,
-and write the result (see STEP 4 on shared files). Lines that other sessions added since STEP 1
-must survive.
+Do it with `rewrite(OBS, drain_fn, label="promote-observations")` (STEP 4): `drain_fn` receives the
+current file text and returns it minus the promoted entries, matched by content. By hand: re-read the file
+now, drop the promoted entries from that fresh text by matching their content, and write the result. Lines
+that other sessions added since STEP 1 must survive.
 
 ---
 

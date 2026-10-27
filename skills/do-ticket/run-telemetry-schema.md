@@ -43,7 +43,7 @@ gates_triggered: []
 unknown_failures: []        # THE highest-value field: feeds new FM-XX proposals
 ```
 
-Everything else in this document (per-phase timestamps, `strategy_outcomes`, `quality_signals`, …) is
+Everything else in this document (per-phase timestamps, `triage.*`, `strategy_outcomes`, `quality_signals`, …) is
 **optional enrichment**. Add it when the run genuinely produced the signal; never block the file on it.
 
 **Empty lists must be written explicitly.** `failure_modes_hit: []` means "this run hit none" — an omitted
@@ -88,6 +88,36 @@ phases:
     blocked_reason: "open question: which user role can cancel?"
     iterations: 2          # blocked once, resolved, ran again
   # ... etc
+
+# Triage (Phase 9.7) — effort pricing for the human, and whether it was RIGHT.
+# The `actual_*` / `downstream` fields are what make the score falsifiable; without them
+# triage is a number nobody ever grades, which drifts silently. Rubric: triage-scoring.md
+triage:
+  prior: easy                # written at Phase 2 from ticket text ALONE (easy|normal|hard)
+  axes: {spread: 4, volume: 2, difficulty: 2, ambiguity: 1, risk: 1, verifiability: 2}
+  clear_raw: 74              # before caps
+  clear: 60                  # after caps — this is what the user read
+  cap_applied: "single axis = 4 (spread)"
+  mode: AMBER                # GREEN | AMBER | ORANGE | RED
+  confidence: high           # high | medium | low
+  vetoes: []                 # e.g. [prod-data-rewrite, auth-surface]
+  trap_flag: trap            # trap | lighter-than-it-looks | null
+  predicted_files: 5
+  predicted_loc: 120
+  # Phase 12 recalibration:
+  actual_files: 7
+  actual_loc: 155
+  error_ratio: 1.4
+  unlisted_repos: []
+  mode_after_recalibration: AMBER
+  # Closed at Phase 23 — did the run cost what the score promised?
+  downstream:
+    quality_must_fix_count: 0
+    implement_iterations: 1
+    replan_count: 0
+    fm_3x_same_root: false
+    ci_red_count: 0
+    review_rounds: 1
 
 # Strategy outcomes (for selection_rules learning)
 strategies_used:
@@ -200,6 +230,7 @@ quality_signals:
 | `failure_modes_hit[]` | do-ticket when FM-XX matches |
 | `gates_triggered[]` | do-ticket when gate fires |
 | `unknown_failures[]` | implement / api-test / others when an unrecognized error pattern recurs ≥3 times |
+| `triage.*` | do-ticket Phase 9.7 (score) → Phase 12 (`actual_*`, recalibration) → Phase 23 (`downstream`) |
 | `type_promotions[]` | do-ticket on promotion |
 | `ended_at`, `duration_seconds` | do-ticket at phase=done |
 | `quality_signals` | User — prompted by Phase 23 debrief (3 questions) |
@@ -234,6 +265,26 @@ quality_signals:
 - `wrong_output[]` grouped by artifact: if same artifact wrong ≥2 tickets → that phase's output criteria is under-specified → propose sharpening the phase contract or strategy
 - `missing[]` grouped by phase: if same kind of missing thing appears ≥2 tickets → propose adding it to the phase contract's output checklist
 - Any entry with ≥2 occurrences → surface to user as concrete SKILL.md improvement proposal (not just an observation)
+
+### 7. Triage recalibration
+
+The point of `triage` is that the human spends less attention on cheap tickets. That is only safe if the
+score is graded against what the run actually cost. `/learn` grades it:
+
+- **False green (the expensive miss).** Tickets with `mode: GREEN` (or `AMBER`) whose `downstream` shows any
+  of `quality_must_fix_count > 0` · `fm_3x_same_root` · `replan_count > 0` · `ci_red_count > 0` ·
+  `review_rounds > 1`. **≥3 across tickets → propose a concrete rubric change** (raise a weight, tighten a
+  cap, or add a veto) naming the axis that was under-scored in all three. Not an observation — an edit.
+- **False red (the wasted attention).** `mode: ORANGE|RED` with a completely clean `downstream` and
+  `error_ratio` near 1. ≥3 → the rubric is over-charging; propose relaxing the specific cap that fired.
+  Report this too: an alarm that is always wrong stops being read, which is how a gate dies quietly.
+- **Volume calibration.** Median `error_ratio` per `ticket_type`. Consistently > 1.5 means `volume`
+  bands are estimated off a plan that systematically under-lists files → propose re-anchoring the bands.
+- **Trap-flag hit rate.** Of tickets with `prior: easy`, what share scored `CLEAR < 60`? A rate near zero
+  means the Phase 2 prior is being written too generously to ever catch anything.
+
+Never retune by loosening a threshold to make past runs look correct — a threshold moved to fit the data
+it was meant to judge measures nothing. Change the weight or the veto, and state which tickets forced it.
 
 ## Privacy / cleanup
 

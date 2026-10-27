@@ -2,7 +2,7 @@
 
 Phase procedure for phases 10 `unit-tests`, 11 `implement`, 12 `regression`, 12.7 `contract-recheck`, 13 `completeness-audit`, 13.5 `code-quality-review`. The router is `../SKILL.md`: trigger, state files, the phase list, the
 generic phase loop, gates and rules. Inputs and outputs of each phase are in `../phase-contracts.yaml`.
-A bare file name here (`blast-radius.md`, `legacy-contract.md`, …) is a do-ticket companion file in
+A bare file name here (`blast-radius.md`, `triage-scoring.md`, …) is a do-ticket companion file in
 `~/.claude/skills/do-ticket/`.
 
 ## Phase 10 — `unit-tests`
@@ -63,6 +63,14 @@ Then **plan-changeset drift check** (FM-PLAN-CHANGESET-DRIFT): `git diff --name-
 - Unplanned files in diff → show list: *"These files changed but are not in plan. Keep (y) or unstage (n)?"*
 - Planned files missing from diff → show list: *"These planned files have no changes. Intentional skip (y) or implement them first (n)?"*
 Both must be resolved before phase 12 completes.
+
+**Triage recalibration (when `ticket-triage.md` exists):** a real diff now exists, so the Phase 9.7
+estimate gets scored. Run `git diff --shortstat` **per repo** (each with its own `cd` — a bare git command
+reuses the previous repo's cwd and succeeds with the wrong answer), then append the `## Reality check`
+block per `triage-scoring.md`. **Downgrade one mode band** and print the reason
+if `actual_files / predicted_files ≥ 2` or `≤ 0.4`, or a repo in the diff was not listed by triage, or a
+VETO condition became true during implement (a guard removed, a migration added). Keep the original score
+visible — a silently corrected estimate is an estimate that drifts. Write both numbers to telemetry.
 
 **Do not commit yet** — commit happens at phase 16, after env-gate (14) and api-test (15).
 

@@ -1,3 +1,9 @@
+---
+name: scan-init
+description: >
+  Scan a project and produce structured artifact groups consumed by do-ticket and other skills. Supports sub-commands per artifact group. Outputs to public-project-docs/<project>/. Stale-checks before each scan; calls live-sync after each write.
+---
+
 # SKILL: scan-init
 Version: 2.1.0
 Description: >
@@ -89,9 +95,11 @@ For every sub-command (except `all`):
    Write artifact file(s) to output subfolder
    Increment: never buffer all output, write each file as it completes
 
-4. LIVE-SYNC
+4. LIVE-SYNC (optional)
    Call: doc-manager live-sync <artifact_path> edit
    (or `create` if new file)
+   `doc-manager` is not part of this repo. It stands for whatever keeps your docs index in
+   step with new files. If you have none, skip every `doc-manager live-sync` line in this file.
 
 5. UPDATE _index.yaml
    Update artifacts.<sub-cmd>: path, last_updated, fingerprint, status: fresh
@@ -1736,6 +1744,7 @@ FL-7  WRITE _index.yaml update
 FL-8  LIVE-SYNC + MARK DONE
       doc-manager live-sync flows/flow_index.yaml edit|create
       doc-manager live-sync flows/_concerns.yaml edit|create
+      python _shared/tools/check_flow_registries.py {project_docs}   # flow files vs flow_index.yaml vs knowledge.md FLOWS table; exit 1 = drift → fix before done, 2 = cannot measure (say so)
       scan_state.json.status = done
 
 FL-9  REPORT

@@ -68,8 +68,23 @@ a standalone `/push-code`, a resumed ticket, a hotfix branch, or a session where
 as chat prose and no artifact was written. Prose is not an artifact. A review nobody can find later
 did not happen.
 
-**The manual check — open the file, do not recall it.** In the ticket's output folder, find
-`code-quality-review.md` and verify all four:
+**Run the check. Do not eyeball it.**
+
+```bash
+python _shared/tools/check_artifacts.py <ticket_dir> pre-push --type <ticket_type>
+```
+
+Exit **0** = the record exists; go on to the four points below. Exit **2** = BLOCKED, and the output names
+each missing or hollow file. There is no exit 1: this tool never judges your work, only whether the record
+of it exists. It also catches the case a `test -f` cannot — a file that exists but **measured nothing**
+(`0 files, 0 added lines`), which prints the same tick as a real review. That is reported as `HOLLOW` and
+blocks exactly like an absent file. Waivers are by ticket type and are printed, not silent: `doc-only`,
+`spike` and `hotfix` waive the review. The `pre-push` gate also wants the ticket's
+`run-telemetry.yaml`, so on a non-ticket push (no ticket dir) skip the tool and do the four points by hand.
+
+**What the tool cannot judge — open the file, do not recall it.** A PASS says the review exists and
+measured something. It cannot say the review read THIS change. In the ticket's output folder, open
+`code-quality-review.md` and verify all four (if the tool cannot run, these four are the whole check):
 
 1. The file **exists**.
 2. It is **newer than the last commit** on the branch (file time after `git log -1 --format=%ci HEAD`).
@@ -93,9 +108,10 @@ added-line counts. Without it the check can only prove *a* review exists on this
 passed on the first change's artifact (scope 800 lines, a design that had since been replaced). It was
 caught by reading, not by the check.
 
-**Write that scope as a SENTENCE, not a table.** Counts that live only in table cells carry their unit in
-the column header, so a reader (or any script) that looks for `<number> <unit>` sees bare numbers and
-calls a real review hollow. A line like this reads fine to a human and to a tool:
+**Write that scope as a SENTENCE, not a table.** `check_artifacts.py` looks for `<number> <unit>` in the
+head or under a `## Scope` heading. Counts that live only in table cells carry their unit in the column
+header, so the parser sees bare numbers and reports `HOLLOW` on a review that really did measure something.
+A line like this passes and reads fine to a human:
 
 > Reviewed `git diff origin/master...HEAD` across 2 repos: **4 files** and **384 added lines**
 > (310 added lines in `<repo-a>` against base `<sha>`, 74 in `<repo-b>` against base `<sha>`).

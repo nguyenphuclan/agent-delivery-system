@@ -43,7 +43,7 @@ contracts:
       optional:
         - "Jira ticket metadata (issue_type, labels, components)"
     outputs:
-      - "ticket-context.yaml (+ ticket_type, risk_profile, risk_factors)"
+      - "ticket-context.yaml (+ ticket_type, risk_profile, risk_factors, triage_prior)"
     state_writes:
       phase: classify
     user_gate:
@@ -269,6 +269,47 @@ contracts:
       - "NEEDS_BE_ADJUST → loop back to Phase 9 plan to reconcile (G1)"
       - "NEEDS_FE_CHANGE → G1 surface to user: file follow-up FE ticket OR ack as known gap and continue"
     stale_check: "no scan-init dependency — lazy scan at runtime, always fresh per ticket"
+
+  triage:                               # Phase 9.7 — effort pricing for the HUMAN (advisory, never gates)
+    skill: do-ticket internal
+    rubric: triage-scoring.md
+    readiness_gate: 9                   # piggybacks plan readiness; no separate scan-init dep
+    inputs:
+      required:
+        - "plan.md"
+        - "ticket-context.yaml"
+      optional:
+        - "requirements-analysis.md"
+        - "test-cases.md"
+        - "fe-impact-check.md"
+        - "ctx.triage_prior (written at Phase 2 from ticket text alone)"
+        - "{project_docs}/incidents/incidents.yaml"
+        - "{project_docs}/_quickref.yaml"
+        - "{project_docs}/patterns/_index.yaml"
+    preconditions:
+      skip_if: "ticket_type ∈ {doc-only, spike, hotfix}"
+      confidence_capped_at_medium: "ticket_type ∈ {bugfix-small, refactor}  # lite plan cannot support 'high'"
+      forbidden: "reading source files — no-inline-code-reads applies; unsupported score = confidence finding"
+    algorithm:
+      - "Score 6 axes 1-5 from artifacts on disk: spread, volume, difficulty, ambiguity, risk, verifiability"
+      - "CLEAR = max(0, 100 - Σ wᵢ·(axisᵢ-1)); w = {5,3,4,5,6,4}"
+      - "Apply the LOWEST applicable cap (worst axis sets the ceiling — never the mean)"
+      - "Evaluate VETO list → any hit forces mode RED, CLEAR ≤ 20"
+      - "Report confidence (high/medium/low) SEPARATELY; low caps CLEAR at 55"
+      - "Trap flag: ctx.triage_prior == easy AND CLEAR < 60 → ⚠ TRAP + name the responsible axis"
+      - "Write ticket-triage.md per the template, hard cap 60 lines"
+      - "Print 3 lines (mode · CLEAR · red flags) and continue — no user gate"
+    outputs:
+      - "tickets/{ID}/ticket-triage.md   # read by the human, consumed by no skill"
+      - "ticket-context.yaml (+ triage_clear, triage_mode, triage_confidence, triage_vetoes[], triage_predicted_files, triage_predicted_loc)"
+      - "run-telemetry.yaml (+ triage block)"
+    state_writes:
+      phase: triage
+    blocks_on: []                       # by design: this phase asks nothing and gates nothing
+    user_gate: null
+    recalibrated_at: "regression (Phase 12) — append ## Reality check; downgrade one band if error_ratio ≥2 or ≤0.4, an unlisted repo appears, or a VETO became true"
+    advisory_only: "A high CLEAR never authorises skipping a phase, softening a gate, shortening a review, or pre-selecting an option for the user. Agent behaviour is identical at CLEAR 100 and CLEAR 10."
+    stale_check: "regenerate whenever plan.md changes (replan / update cycle) — a triage scored against a superseded plan is worse than none"
 
   unit-tests:                           # Phase 10
     skill: write-unit-tests

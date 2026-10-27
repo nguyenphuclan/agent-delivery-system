@@ -32,6 +32,7 @@ Phase numbers below match the canonical enumeration in `do-ticket/SKILL.md` (§ 
 4. If (a): re-run phase 5 (`requirements`) → phase 6 (`analyze`) → show requirements diff → write `update-implement-v<N>.md` → re-run the implementation chain in update mode: phases 9 (`plan`) → 10 (`unit-tests`) → 11 (`implement`) → 12 (`regression`) → 13 (`completeness-audit`) → 14 (`env-gate`) → 15 (`api-test`) → 16 (`commit`) → 17 (`pre-push`) → 18 (`ci-check`) → 19 (`invariant-encoded`) → 21 (`pr-ready`, regenerate description).
 5. If (b): ask user for missing cases → update `test-cases.md` (phase 8) → write `update-implement-v<N>.md` → re-run the implementation chain (same phase list as step 4).
 6. Child skills (`implement-plan`, `implement`) receive the path `update-implement-v<N>.md` explicitly — they do not assume the filename.
+6b. **Re-run phase 9.7 (`triage`) whenever phase 9 (`plan`) re-ran** — an update cycle is exactly when a "small" ticket grows. Overwrite `ticket-triage.md`, but keep the previous verdict as a one-line `Previous round: <mode> · CLEAR <n>` under the header: a ticket whose price climbed AMBER → ORANGE across rounds is itself the signal, and it disappears if each round silently replaces the last.
 7. Increment `pr_count` when user confirms PR raised.
 
 ---

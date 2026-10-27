@@ -37,7 +37,7 @@ This skill is **company-agnostic**. It encodes the algorithm only:
 
 | Mode | Triggered by | Action |
 |---|---|---|
-| `health` | resume a ticket in an existing worktree, after any rebase, "check worktree" | Phase 0: manual freshness / port / stale-process check |
+| `health` | resume a ticket in an existing worktree, after any rebase, "check worktree" | Phase 0: `check_worktree.py` freshness + running-services check (manual table as fallback) |
 | `setup` (default) | `do-ticket --worktree`, "setup worktree" | Phase 1–5: pick offset → create worktrees (incl. static FE) → copy/rewrite Dev configs → build-verify → generate `.vscode/launch.json` |
 | `port-default` (new) | "switch to main ports", "use default ports" | Phase 5b: rewrite all `.Development.json` + `.vscode/launch.json` URLs from `localhost:<offset_port>` → `localhost:<main_port>`. Use when user wants FE to talk to this worktree's BE instead of main BE. Pre-condition: main BE must be stopped (default ports free) AND no other worktree is currently in `port-default`. |
 | `port-offset` (new) | "switch back to offset", "use worktree ports" | Phase 5b reverse: rewrite from `localhost:<main_port>` → `localhost:<offset_port>`. Restores parallel-safe coexistence with main. |
@@ -107,7 +107,20 @@ If a required field is blank or `(fill in)` → stop and ask user to fill `_conf
 ## Phase 0 — Health check (run FIRST on any existing worktree)
 
 Before doing anything in a worktree that already exists — resuming a ticket, starting a session,
-and **always after a rebase** — check these by hand. Any "fail" blocks work until fixed.
+and **always after a rebase** — run:
+
+```bash
+python _shared/tools/check_worktree.py <WT_ROOT> --fetch     # drop --fetch only if you fetched every repo just now
+```
+
+Exit 0 = safe. Exit **2** = BLOCKED, with the reason named. It answers two things a glance cannot:
+every repo's distance from the base branch (`--base` defaults to the project's base branch; without
+`--fetch` it warns when the remote refs are old), and whether this worktree's services are still running
+(ports from the `ports:` map in `.worktree-meta.yaml`, or `--ports`). A running service is reported, not
+blocked: you want it for an API test, not for a build.
+
+The tool does not check that ports agree with the config files, so do that row of the table below by hand.
+If the tool cannot run, the whole table is the check. Any "fail" blocks work until fixed.
 
 | Check | How | Pass / fail |
 |---|---|---|

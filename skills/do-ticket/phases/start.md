@@ -50,9 +50,14 @@ A bare file name here (`ticket-types.md`, `do-ticket-update.md`, …) is a do-ti
    - `ticket_type` ← from state `ticket_type` (if set)
    - `worktree_mode` ← from state `worktree_mode`
    - All other fields left empty — downstream phases will repopulate incrementally.
-5. Stale-fingerprint sweep (resume only — skip on fresh start): for each file in `ticket-context.fingerprints`,
-   compute its current SHA-256 and compare. Same → continue silently. Different → FM-FINGERPRINT-STALE for the
-   drifted files only (a key with no file behind it is not drift). A fingerprint line carrying
+5. Stale-fingerprint sweep (resume only — skip on fresh start): run
+   `python _shared/tools/ticket_fingerprints.py check {ticket_dir}`. Exit 0 → continue silently. Exit 3 →
+   FM-FINGERPRINT-STALE for the files printed as `DRIFT` only (`unmapped` keys are not drift). Exit 2 → the
+   tool could not read the folder; fix the path or do the sweep by hand. If the tool cannot run, do it by
+   hand: for each file in `ticket-context.fingerprints`, compute its current SHA-256 (first 16 hex chars,
+   as the tool writes them) and compare. Same →
+   continue. Different → FM-FINGERPRINT-STALE for the drifted files only (a key with no file behind it is not
+   drift). A fingerprint line carrying
    `# refreshed <date>: <reason>` is an edit the run made on purpose and already accepted — do not re-ask about
    it. Before raising the FM, open the drifted file's own history if the folder is a git repo
    (`git -C {output} log -1 -- <file>`): if the last change came from this ticket's own run, refresh it with
@@ -120,6 +125,11 @@ Runs after `branch` (1) so Jira metadata can be fetched alongside.
    - **Override with unknown type (C3):** validate against type list in `ticket-types.md`. If invalid → *"Unknown type `<X>`. Valid types: [list]. Try again."* Re-prompt once; if still invalid → abort.
 5. Recompute `risk_profile` + `risk_factors` from the confirmed type's entry in `ticket-types.md` (C2 — always recompute, even on override).
 6. Save `ticket_type`, `risk_profile`, `risk_factors` to `ticket-context.yaml`.
+6b. **Record the triage prior** (one line, no analysis): from the **ticket text alone** — before any code
+   or plan evidence exists — write `ctx.triage_prior: easy | normal | hard` per the rule in
+   `triage-scoring.md`. Phase 9.7 compares it against the scored `CLEAR` to detect the
+   *looks-easy-but-isn't* trap. Computing it later, with the plan already read, would make that flag
+   unfalsifiable hindsight — so it is captured here or not at all. Skip when the type skips 9.7.
 7. Compute phase list from the type's section of `ticket-types.md`. This is the flow shape for the rest of the run.
 
 ## Phase 3 — Resolve context

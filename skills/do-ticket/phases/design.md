@@ -1,8 +1,8 @@
 # do-ticket — design part
 
-Phase procedure for phases 7 `invariant-scope`, 8 `test-cases`, 8.7 `blast-radius`, 9 `plan`, 9.5 `fe-impact-check`, 9.8 `legacy-contract`. The router is `../SKILL.md`: trigger, state files, the phase list, the
+Phase procedure for phases 7 `invariant-scope`, 8 `test-cases`, 8.7 `blast-radius`, 9 `plan`, 9.5 `fe-impact-check`, 9.7 `triage`, 9.8 `legacy-contract`. The router is `../SKILL.md`: trigger, state files, the phase list, the
 generic phase loop, gates and rules. Inputs and outputs of each phase are in `../phase-contracts.yaml`.
-A bare file name here (`blast-radius.md`, `legacy-contract.md`, …) is a do-ticket companion file in
+A bare file name here (`blast-radius.md`, `triage-scoring.md`, …) is a do-ticket companion file in
 `~/.claude/skills/do-ticket/`.
 
 ## Phase 7 — `invariant-scope`
@@ -85,6 +85,39 @@ Lazy FE compatibility check using the just-written plan as scope. Catches FE-BE 
 **Output:** `tickets/{ID}/fe-impact-check.md` (small, ticket-scoped — NOT a scan-init artifact).
 
 **Rationale:** Pre-scanning FE module structure is low-ROI for BE engineers. The only FE knowledge a BE engineer actually needs is contract compatibility per touched endpoint — and that is cheapest to derive at plan-time, scoped by the actual BE proposal, with always-fresh greps. Slip files pre-built into scan-init would go stale; an upfront full FE scan would over-collect FE wizard/i18n/state detail that the BE engineer never uses.
+
+## Phase 9.7 — `triage`
+
+Prices the ticket for the **human**: one page saying how much of the user's own review attention this
+ticket deserves, and whether the ticket text is lying about that. Full rubric, cap/veto rules and the
+output template live in `triage-scoring.md`.
+
+**Output:** `{ticket_dir}/ticket-triage.md` — read by the user, consumed by no skill. Hard cap 60 lines,
+service/repo granularity, no file lists, no snippets.
+
+**Algorithm:**
+1. Score six axes 1–5 from artifacts already on disk (`plan.md`, `requirements-analysis.md`,
+   `ticket-context.yaml`, `fe-impact-check.md`, `{project_docs}/**`): `spread` · `volume` ·
+   `difficulty` · `ambiguity` · `risk` · `verifiability`. **No source reads** — the no-inline-code-reads rule
+   applies here too; an unsupported score is a *confidence* finding, not a reason to grep.
+2. `CLEAR = max(0, 100 − Σ wᵢ·(axisᵢ−1))`, then apply the **lowest** applicable cap. The worst axis sets
+   the ceiling — a mean would let one catastrophic axis average into "fine".
+3. Evaluate the VETO list → any hit forces mode **RED** (`CLEAR ≤ 20`).
+4. Report `confidence` (high/medium/low) **separately**, never folded into `CLEAR`. `low` caps `CLEAR` at
+   55, so a shaky estimate can never read GREEN.
+5. Trap flag: compare `ctx.triage_prior` (written at Phase 2 from ticket text alone) against `CLEAR`.
+   `easy` + `CLEAR < 60` → **⚠ TRAP**, and name the axis responsible.
+6. Write `triage` block to `run-telemetry.yaml` (schema in `run-telemetry-schema.md`).
+
+**Then print 3 lines and continue — do not block.** No user gate: this phase asks nothing. It hands the
+user a price list; whether they spend less at the gates that follow is their call, not the agent's.
+
+**Skipped for:** `doc-only`, `spike`, `hotfix` (no plan to price; hotfix is critical by definition).
+**Confidence capped at `medium`** for `bugfix-small` and `refactor` — a lite plan cannot support `high`.
+
+**The agent's own behaviour is unchanged by the score.** Every gate fires as it would have, with the same
+wording and the same evidence. If a future run reads `GREEN` and quietly softens a gate, that is a defect
+in the run — the whole value of this file is that the human can trust it without the agent acting on it.
 
 ## Phase 9.8 — `legacy-contract` (T0)
 

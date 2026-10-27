@@ -30,7 +30,7 @@ Phase numbers below match the canonical enumeration in `do-ticket/SKILL.md`.
 | Phase | Writer | Adds |
 |-------|--------|------|
 | 1 (branch) | do-ticket | `ticket_id`, `resolved.*`, `fingerprints.projects_md` |
-| 2 (classify) | do-ticket | `ticket_type`, `risk_profile` |
+| 2 (classify) | do-ticket | `ticket_type`, `risk_profile`, `triage_prior` (step 6b) |
 | 3 (resolve-context) | do-ticket | `fingerprints.*` baseline |
 | 5 (requirements) | jira-to-requirements | `fingerprints.requirements_sha`, `jira.fetched_at` |
 | 6a (context-expansion) | do-ticket | `context_expansion.*`, `fingerprints.context_expansion_sha` |
@@ -43,6 +43,7 @@ Phase numbers below match the canonical enumeration in `do-ticket/SKILL.md`.
 | 9 (plan, §A) | implement-plan | `structural_quality_decisions` |
 | 9 (plan) | implement-plan | `decisions[]` (work mode per decision — see below) |
 | 8.7 (blast-radius) | do-ticket | `blast_radius.*`, `armed_gates[]`, `no_marker` (see `blast-radius.md`) |
+| 9.7 (triage) | do-ticket | `triage_clear`, `triage_mode`, `triage_confidence`, `triage_vetoes[]`, `triage_predicted_files`, `triage_predicted_loc` (see `triage-scoring.md`) |
 | 9.8 (legacy-contract) | do-ticket | `contract_approved_at`, `frozen_baseline` (see `legacy-contract.md`) |
 | 10 / 12 (unit-tests / regression) | do-ticket | `red_count`, `green_count`, `tests_run` (see `phase-contracts.yaml`) |
 | 12.7 (contract-recheck) | do-ticket | `contract_held`, `counts_moved[]` |
@@ -65,6 +66,7 @@ schema_version: 1
 ticket_type: crud-feature           # see do-ticket/ticket-types.md
 risk_profile: medium                # low | medium | high | critical
 risk_factors: []                    # ["touches-auth", "db-migration", "prod-data"]
+triage_prior: normal                # easy | normal | hard — step 6b, from the ticket TEXT alone (null when the type skips 9.7)
 
 # Set by phase 1 (branch + project resolve)
 resolved:
@@ -103,6 +105,15 @@ pattern_matches: []
 #   - file: Application/Commands/CreateTaskHandler.cs
 #     pattern_id: PAT-CMD-1
 #     priority: mandatory
+
+# Set by phase 9.7 (triage) — advisory pricing for the human; never read by a gate. Rubric: triage-scoring.md
+# All null when the type skips 9.7 (doc-only, spike, hotfix). Regenerated whenever plan.md changes.
+triage_clear: null                  # 0-100, after caps
+triage_mode: null                    # GREEN | AMBER | ORANGE | RED
+triage_confidence: null              # high | medium | low
+triage_vetoes: []                    # e.g. [prod-data-rewrite, auth-surface]
+triage_predicted_files: null         # checked against the real diff at Phase 12
+triage_predicted_loc: null
 
 # Set by phase 6 (analyze) — true if clarity < 60 and user accepted speed-mode
 speed_mode: false

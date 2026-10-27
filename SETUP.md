@@ -4,6 +4,8 @@
 
 - An LLM coding agent harness that can read local skill files (Claude Code, Cursor, or similar).
 - `git`, plus authenticated access to the repos you want indexed.
+- Python 3 for the gate tools in `_shared/tools/` (stdlib only; install PyYAML for the YAML checks). The
+  skills fall back to a manual check when a tool cannot run. See the tools table in `README.md`.
 - (Optional, for `do-ticket`) Jira/Linear/GitHub Issues API access if you want ticket fetching.
 - (Optional, for `scan-init`) read-only DB connection if you want schema indexing.
 

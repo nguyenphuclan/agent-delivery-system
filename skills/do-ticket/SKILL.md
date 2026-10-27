@@ -47,6 +47,7 @@ matters, not the name.
 | `failure-modes.yaml` | FM-XX registry — auto-pivots before human gates |
 | `ticket-context-schema.md` | Schema for the shared resolved-once context object |
 | `run-telemetry-schema.md` | Schema for per-ticket telemetry → /learn auto-improvement |
+| `triage-scoring.md` | Phase 9.7 `triage` — 6-axis scoring rubric, cap/veto rules, and the one-page output template for `ticket-triage.md` |
 | `blast-radius.md` | Phase 8.7 — count the legacy surfaces a change touches and arm the gates |
 | `legacy-contract.md` | Phases 9.8 (T0) and 12.7 (T1) — the one file a legacy change is approved on, and its re-check |
 | `code-quality-review.md` | Phase 9 §A structural gate and Phase 13.5 §B diff-scoped quality review |
@@ -158,6 +159,7 @@ Reading order = execution order. The numbers below are the **canonical sequence 
 | 8.7 | `blast-radius` | do-ticket internal (count legacy surfaces, arm gates — see `blast-radius.md`) |
 | 9 | `plan` | implement-plan |
 | 9.5 | `fe-impact-check` | do-ticket internal (FE contract check scoped by the plan) |
+| 9.7 | `triage` | do-ticket internal (one-page effort-pricing report for the human — see `triage-scoring.md`) |
 | 9.8 | `legacy-contract` | do-ticket internal (T0 — runs only when gates are armed; see `legacy-contract.md`) |
 | 10 | `unit-tests` | write-unit-tests |
 | 11 | `implement` | implement |
@@ -182,6 +184,7 @@ Reading order = execution order. The numbers below are the **canonical sequence 
 - `regression` (12) must complete before `commit` (16)
 - `code-quality-review` (13.5) must complete (or be skipped per type) before `commit` (16); any `must-fix` open → loop to `implement` (11), not proceed
 - `api-test` (15) must complete or be explicitly skipped before `commit` (16)
+- `triage` (9.7) runs after `plan` (9) — it prices the plan, so it cannot precede it — and before `unit-tests` (10), i.e. before the human spends attention on any downstream gate. It is **advisory only**: it never gates, never skips, never relaxes another phase.
 - `commit` (16) must complete before `pre-push` (17)
 - `pr-ready` (21) requires explicit user `y/n` before `gh pr create`
 
@@ -198,7 +201,7 @@ enters that part. Never read the files of later parts ahead of time**, and never
 |---|---|---|
 | start | 0 `load-state`, 1 `branch`, 2 `classify`, 3 `resolve-context`, 4 `rebase-check` | `phases/start.md` — **every invocation** |
 | analyze | 5 `requirements`, 5.5 `enrich`, 6 `analyze` (6a, 6b, 6c flow gate) | `phases/analyze.md` |
-| design | 7 `invariant-scope`, 8 `test-cases`, 8.7 `blast-radius`, 9 `plan`, 9.5 `fe-impact-check`, 9.8 `legacy-contract` | `phases/design.md` |
+| design | 7 `invariant-scope`, 8 `test-cases`, 8.7 `blast-radius`, 9 `plan`, 9.5 `fe-impact-check`, 9.7 `triage`, 9.8 `legacy-contract` | `phases/design.md` |
 | build | 10 `unit-tests`, 11 `implement`, 12 `regression`, 12.7 `contract-recheck`, 13 `completeness-audit`, 13.5 `code-quality-review` | `phases/build.md` |
 | verify | 14 `env-gate`, 15 `api-test`, 16 `commit`, 17 `pre-push` | `phases/verify.md` |
 | ship | 18 `ci-check` … 23 `done` | `phases/ship.md` |
@@ -242,12 +245,14 @@ For each phase in the type's phase list (from `ticket-types.md`):
 
 3. **Post-phase:**
    - Verify `outputs` produced.
-   - Fingerprint the outputs: write the SHA-256 of each output file to `ticket-context.fingerprints`, with a
-     short reason (`<phase> output`).
+   - Fingerprint the outputs: `python _shared/tools/ticket_fingerprints.py refresh {ticket_dir} <output files> --reason "<phase> output"`.
+     If the tool cannot run, do it by hand: write the SHA-256 (first 16 hex chars) of each output file to
+     `ticket-context.fingerprints`, with a short reason (`<phase> output`).
    - **Editing an artifact after its phase has ended** (a decision written into `plan.md`, a step removed from
-     `test-cases.md`) is the same step: refresh that file's fingerprint in the SAME turn, and add a note
-     `# refreshed <date>: <reason>` on its line. Without it the next resume reads a correct, deliberate edit as
-     drift and asks to regenerate it (PROJ-11212: 4 false prompts). The note lets a resume tell an edit from drift.
+     `test-cases.md`) is the same step: run `refresh` on that file in the SAME turn, with the reason (by hand:
+     refresh that file's fingerprint and add a note `# refreshed <date>: <reason>` on its line). Without it the
+     next resume reads a correct, deliberate edit as drift and asks to regenerate it (PROJ-11212: 4 false
+     prompts). The reason lands as a comment on the fingerprint line, so a resume can tell an edit from drift.
    - Append `{phase: "<name>", completed_at: <ISO8601>}` to `ticket-context.phases_run[]`. This is the canonical telemetry format — always use this exact structure.
    - Append phase outcome to `run-telemetry.yaml.phases[]`.
    - Save state: `phase: <name>`, `last_updated: <now>`.
@@ -277,7 +282,7 @@ picks up at the next phase.
 
 | Boundary | End the session after | Skipped for |
 |---|---|---|
-| **S1** | the design part — the last of 9 / 9.5 / 9.8 the type runs, with its gate passed, just before the first build phase (10 or 11) | `bugfix-small`, `hotfix`, `doc-only` (lite plan — the session is short anyway) |
+| **S1** | the design part — the last of 9 / 9.5 / 9.7 / 9.8 the type runs, with its gate passed, just before the first build phase (10 or 11) | `bugfix-small`, `hotfix`, `doc-only` (lite plan — the session is short anyway) |
 | **S2** | `pre-push` (17) — the push is done and CI needs minutes anyway | none |
 | **S3** | each `pr-review` (22) round — the next round runs as `do-ticket <TICKET_ID> pr-review` | none |
 | **SZ** | any phase, when the size check below fires | none |
@@ -414,12 +419,18 @@ Every phase write appends to `{output}/tickets/<TICKET_ID>/run-telemetry.yaml`. 
 - Failure modes hit + pivot used + resolution time
 - Gates triggered + user choice + duration
 - Type promotions + reason
+- `triage` — axes, `CLEAR`, mode, vetoes, confidence, prior-vs-score trap, predicted-vs-actual volume
 - Session boundaries (`session_boundaries[]`)
 - Update cycles, review rounds
 - `unknown_failures[]` — error signatures not in registry (≥3 occurrences → /learn proposes new FM-XX)
 
+**Cost** is not in telemetry. Optional: run `python _shared/tools/ticket_cost.py <TICKET_ID>` (or `--list`)
+by hand. It reads the Claude Code transcripts on disk after the fact, makes no model call, and splits $ by
+part and by main session vs sub-agent. Phase 23 may run it once per ticket.
+
 `/learn` reads telemetry across all tickets to propose:
 - New FM-XX entries (recurring unknown failures)
+- Triage recalibration — axis weights, caps and the veto list, from tickets whose `CLEAR` disagreed with what the run actually cost
 - Strategy default tuning (low success rate strategies → demote)
 - Gate analytics + auto-pivot candidates
 - Phase bottleneck detection
@@ -438,6 +449,7 @@ Every phase write appends to `{output}/tickets/<TICKET_ID>/run-telemetry.yaml`. 
 - Never run `git push` automatically — user always pushes manually.
 - Secrets-in-staged-files gate: HARD STOP, no exceptions.
 - Each phase completes fully before the next starts.
+- **`ticket-triage.md` is advisory to the human and inert to the agent.** A high `CLEAR` never authorises skipping a phase, softening a gate, shortening a review, or pre-selecting an option on the user's behalf. The agent asks exactly what it would have asked at `CLEAR 10`. Only the user acts on the score.
 - **No inline code reads:** do-ticket must never directly Glob or Read source files. All code discovery delegated to `implement-plan` (which uses `{project_docs}/code/domain_index.yaml`) or `implement` (which follows `plan.md` paths). New context mid-ticket → write `update-implement-vN.md` → route to `implement-plan update`.
 - Append-only context: child skills never delete or mutate fields they didn't write to `ticket-context.yaml`.
 - Telemetry is append-only during the run; closed at `phase: done`.
@@ -452,10 +464,12 @@ Every phase write appends to `{output}/tickets/<TICKET_ID>/run-telemetry.yaml`. 
   single build. It does not cover a loop: one session hit 3+ lock/unlock cycles, and an aborted locked
   build then left a stale shared-library `bin` folder that failed the next restore with NU5026. Batch the
   builds, ask once. *(2026-04-22 / 2026-06-03 / 2026-07-02 / 2026-07-10)*
-- **A file-exists check is not a gate.** An artifact can exist, parse, and still describe nothing — empty
-  phase lists, a scope number quoted from another section, or a review left over from an earlier change on
-  the same ticket. At every HARD PRE-CHECK, **open the artifact and check it describes the change in front of
-  you.**
+- **A file-exists check is not a gate — and a `check_artifacts.py` PASS means "the record exists", not "the
+  work was done".** An artifact can exist, parse, and still describe nothing — empty phase lists, a scope
+  number quoted from another section, or a review left over from an earlier change on the same ticket. The
+  checker has failed OPEN in each of these three ways (its docstring lists them); each miss was caught by
+  reading the artifact. At every HARD PRE-CHECK, run the tool, then **open the artifact and check it
+  describes the change in front of you.**
 - **Large test file reads:** never `Read` full test files. Grep for signatures first, then targeted `Read` with offset/limit. Files >10000 tokens fail and waste a retry. *(2026-04-14)*
 - **Frontmatter drift:** child skill frontmatters use varied formats (some quoted, some block-scalar). Phase contracts live in `phase-contracts.yaml`, not in child frontmatters, to avoid maintenance drift. *(2026-05-02)*
 - **Long sessions need RESUME.md:** when a ticket spans multiple sessions (or session approaches context limits), write `RESUME.md` to the ticket folder capturing the **audit trail of design decisions** — not just status. Without it, next-session-Claude has to re-derive every choice. `ticket-state.yaml` captures workflow position; `RESUME.md` captures *why this design*. § Sessions sets the fixed points. *(2026-05-05)*

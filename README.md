@@ -66,9 +66,34 @@ Full setup in [`SETUP.md`](SETUP.md). Agent entry rules in [`CLAUDE.md`](CLAUDE.
 | `skills/worktree-setup/`          | Parallel git worktrees for a multi-repo service stack, port-offset per worktree |
 | `skills/spike/`                   | Timeboxed spike ticket — answer its own questions with re-runnable evidence, draft follow-ups, write no code |
 | `skills/ticket-explain/`          | Plain-English share-doc that explains one ticket to teammates who will not build it |
-| `_shared/`                        | 14 reusable protocol files (clarification, hypothesis, mapping, etc.) |
+| `_shared/`                        | Reusable protocol files (clarification, hypothesis, mapping, etc.) + `check-scope.py` |
+| `_shared/tools/`                  | Small Python gate tools the skills call (below) |
 | `_config/projects.yaml.template`  | Project config schema |
 | `docs/`                           | Architecture + sample outputs |
+
+### `_shared/tools/`
+
+Python 3, stdlib only (PyYAML used when present). Each one turns a prose rule that kept being skipped into
+a command with an exit code. Each SKILL.md keeps a manual check as the fallback when a tool cannot run.
+
+| Tool | Purpose |
+|---|---|
+| `check_artifacts.py`        | Blocks a do-ticket gate (`pre-commit` / `pre-push` / `pr` / `done`) when a declared artifact is missing, hollow, or unparseable. PASS = "the record exists", not "the work is right" |
+| `ticket_fingerprints.py`    | `check` finds artifacts that drifted since their phase ended; `refresh` re-fingerprints a deliberate edit, with a reason |
+| `ticket_cost.py`            | $ cost of a ticket run (per part, main vs sub-agent), read from Claude Code transcripts on disk; no model call |
+| `check_worktree.py`         | Is a worktree safe to build in: every repo fresh against the base branch, and which of its services are running |
+| `check_flow_registries.py`  | Flow files, `flows/flow_index.yaml` and the `knowledge.md` FLOWS table agree |
+| `check_skill_frontmatter.py`| Every `SKILL.md` has YAML frontmatter that parses (no BOM, has `name` + `description`) |
+| `shared_store.py`           | Library: locked, atomic `append_lines` / `rewrite` for files several sessions write (e.g. `observations.md`) |
+
+Repo check before a commit to this repo:
+
+```bash
+python _shared/tools/check_skill_frontmatter.py skills     # exit 0 = every skill loads
+python -m unittest discover -s _shared/tools -p "test_*.py" # tools' own tests (unittest ones)
+python _shared/tools/test_shared_store.py                   # these two run as plain scripts
+python _shared/tools/test_ticket_cost.py
+```
 
 ---
 
