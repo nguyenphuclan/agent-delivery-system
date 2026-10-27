@@ -1757,7 +1757,7 @@ FL-9  REPORT
 
 flows:
   rerouting:                              # flow id — kebab-case, business-named
-    description: "Cancel active OutTask under party A → create new OutTask under party B"
+    description: "Cancel active OutboundOrder under party A → create new OutboundOrder under party B"
     business_value: "Allow AO/PO to reassign in-flight work to a different solution party without losing context"
     aliases: [reroute, change-solution-party]   # alternate names used in tickets
 
@@ -1784,8 +1784,8 @@ flows:
           location: TBD
 
     effects:
-      - "Active OutTask under old party transitions to TO_BE_CANCELLED (revision++)"
-      - "New OutTask created under new party in RECEIVED state"
+      - "Active OutboundOrder under old party transitions to TO_BE_CANCELLED (revision++)"
+      - "New OutboundOrder created under new party in RECEIVED state"
       - "RabbitMQ publish: SendInboundOrderToPartner + SendOutboundOrdersToVendor"
 
     code_anchors:
@@ -1801,16 +1801,16 @@ flows:
         location: acme-api-task/.../OrderCreateExecutor.cs:51
         rule_enforced: "task_solution_parties row present = AO-explicit, bypass routing"
 
-    related_entities: [ServiceTask, InTask, OutTask, OutTaskset]
+    related_entities: [ServiceTask, InboundOrder, OutboundOrder, OutboundOrderSet]
     related_flows:
       - solution-party-assignment        # parent: just sets the field; rerouting is one of the effects
       - dynamic-workflow                  # async pipeline that invokes rerouting via CreateChildTask
-      - contractor-routing                # downstream: new OutTask gets routed to contractor
+      - contractor-routing                # downstream: new OutboundOrder gets routed to contractor
 
     invariants_respected:
-      - rule_id: IT-CREATE-1              # in_task.yaml
+      - rule_id: IO-CREATE-1              # inbound_order.yaml
         description: "task_solution_party row present = AO-explicit; row absent = re-route fresh"
-      - rule_id: OT-UNIQ-1                # out_task.yaml
+      - rule_id: OO-UNIQ-1                # outbound_order.yaml
         description: "at_most_one_non_terminal_per_address_within_category"
 
     past_incidents:
@@ -1833,7 +1833,7 @@ flows:
         related_ticket: PROJ-10867
         confidence: confirmed
       - id: kg-2
-        description: "AssignmentSetter publish gated on isExistOutTask || shouldGenerateOuttask"
+        description: "AssignmentSetter publish gated on isExistOutboundOrder || shouldGenerateOutboundOrder"
         mechanism: conditional-guard
         location: acme-api-task/.../AssignmentSetter.cs:107-119
         blocks_trigger: t1
@@ -1861,8 +1861,8 @@ indexes:
 
   by_entity:
     ServiceTask: [rerouting, contractor-assignment, dynamic-workflow]
-    InTask: [rerouting, indication-send-ao]
-    OutTask: [rerouting, contractor-assignment]
+    InboundOrder: [rerouting, indication-send-ao]
+    OutboundOrder: [rerouting, contractor-assignment]
 
   by_health:
     ok: [contractor-assignment, dynamic-workflow]
@@ -2565,6 +2565,12 @@ signals:
 ---
 
 ## What the Agent Must Never Do
+
+- Conclude "no consumer" or "no publisher" from a SOURCE-ONLY scan. Two shapes are invisible to it and
+  both produced false high-severity flags: (1) a consumer deriving from `BackgroundService` instead of
+  the shared `Subscriber` base — this is what made one finding claim a queue had gone unconsumed for
+  three months; (2) a publisher that is a scheduler table row in the DATABASE with no class anywhere.
+  Before raising "nothing reads this", check the DB-driven and base-class-divergent paths.
 
 - Skip Phase 1 even if the project looks simple
 - Assign a layer to any domain before Phase 1 is complete

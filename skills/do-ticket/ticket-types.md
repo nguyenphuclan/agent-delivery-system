@@ -30,8 +30,8 @@ Rules (first match wins):
 2. jira.issue_type == "Sub-task"
    → fetch parent ticket → inherit parent's ticket_type → confirm with user
 
-3. jira.issue_type == "Spike"  OR  title matches /spike|investigate|research|POC/i
-   → ticket_type: spike
+3. jira.issue_type in {"Spike", "Question"}  OR  title matches /spike|investigate|research|POC/i
+   → ticket_type: spike  ⚠ redirect to the `spike` skill (do not continue in do-ticket)
 
 4. jira.labels contains "doc-only"  OR  title matches /^docs?:|update readme|update changelog/i
    → ticket_type: doc-only
@@ -69,9 +69,37 @@ User can pass type explicitly: `do-ticket PROJECT-1234 --type=refactor`. Skips a
 
 ---
 
+## Gate phases 8.7 / 9.8 / 12.7 — where they slot in
+
+**Read this before the lists below.** `blast-radius` (8.7), `legacy-contract` (9.8) and `contract-recheck`
+(12.7) were first added to the phase files but never written into any list here. This file is
+authoritative for which phases run ("phase enumeration comes from this file", bottom of the page), so
+as written they **never ran** for any type. Found on PROJ-11350: the phase whose counts decide the
+whole design had to be invoked by hand.
+
+Rather than restate ten lists, apply these three insertions to whichever list the type uses:
+
+| Phase | Slots | Types |
+|---|---|---|
+| `blast-radius` (8.7) | immediately **before** `plan` | every type except `doc-only` and `spike` (skip) — `hotfix` runs the **lite** version (touched-method counts only, no inventory) |
+| `legacy-contract` (9.8) | after `plan` / `fe-impact-check`, **before** `unit-tests` (or `behavior-diff-tests`) | only when `blast-radius` armed a gate. `armed_gates: none` → skipped, which is the normal case |
+| `contract-recheck` (12.7) | after `regression`, **before** `completeness-audit` (or `code-quality-review` when the type has no audit) | same condition — only when gates were armed |
+
+Two hard consequences, both also stated in `phases/design.md` and `phases/build.md`:
+
+- `plan` may not be written before `blast-radius.md` exists. A count in `plan.md` that is not in
+  `blast-radius.md` is a defect.
+- `implement` may not start while `armed_gates` is non-empty and `contract_approved_at` is unset.
+
+**Most tickets are unaffected.** 8.7 Step 0 stops at `armed_gates: none` for anything that touches nothing
+shared, and then 9.8 and 12.7 do not run at all. The cost is one grep pass on a small ticket.
+
+Full specs: `blast-radius.md` (8.7) and `legacy-contract.md` (9.8 + 12.7).
+
 ## Type → phase list
 
 Phase keys reference do-ticket/SKILL.md. `*` = optional. `!` = type-specific gate.
+The three gate phases above are **not repeated** in each list — apply them per the table.
 
 ### `crud-feature` (default — current full pipeline)
 
@@ -162,15 +190,27 @@ branch → rebase-check → plan → behavior-diff-tests → implement → regre
 
 ---
 
-### `spike` / investigation
+### `spike` / investigation — **redirects out of do-ticket**
+
+do-ticket does **not** run this type. Hand off to the `spike` skill, the same way `hotfix`
+hands off to `hotfix-deploy`:
 
 ```
-branch (spike/) → requirements → investigate → spike-doc → done
+/spike <TICKET>
 ```
 
-- No `implement`, no commit of code (only docs). Output: `public-project-docs/<project>/spikes/<TICKET_ID>.md`.
-- Spike ends with a recommendation that becomes a follow-up ticket of another type.
-- Branch is informational; usually deleted after.
+Why the redirect: a spike's unit of work is a **question**, not a phase. Its old phase list here
+(`investigate`, `spike-doc`) named two phases that existed in no phase table and not in
+`phase-contracts.yaml` — so by do-ticket's own rules this type never ran. The real flow lives in
+`spike/phase-contracts.yaml`: `ledger` (one row per question) → `sources` → `answer` (graded
+evidence, negative control first) → `crosscheck` → `recommend` → `spike-doc` → `publish` (one
+answer on the ticket) → `follow-ups`.
+
+- No `implement`, no code commit. Output: `{output}/spikes/<TICKET_ID>.md` + one ticket comment.
+- Spike ends with a recommendation; each item becomes its own ticket of another type, and
+  **those** come back to do-ticket.
+- Every `spike` mention in do-ticket's skip lists stays correct — it just never gets read,
+  because classification exits at phase 2.
 
 ---
 
@@ -229,6 +269,7 @@ A ticket may need to upgrade type mid-flow. Allowed transitions:
 |------|----|---------|
 | `bugfix-small` | `bugfix-investigated` | FM-3X-SAME-ROOT or "I don't understand why this fails" |
 | `bugfix-small` | `crud-feature` | Scope creeps: ticket grows beyond 1 file or 50 lines |
+| `bugfix-small` | `crud-feature` | **`blast-radius` armed any gate.** A lite one-page plan cannot carry an options table or a legacy contract, and a bug that touches a shared surface needs both |
 | `crud-feature` | `migration-only` | Discovered the only change needed is a schema change |
 | `spike` | (any other type) | Spike concluded → user creates follow-up ticket |
 

@@ -17,6 +17,42 @@ Without telemetry, the only learning loop is manual: human notices a recurring p
 
 One file per ticket. Append-only during the run. Closed when phase=done.
 
+## ⚠ REQUIRED MINIMUM — write this much or the file does not exist
+
+Audited 2026-08-03: **zero** `run-telemetry.yaml` files existed across every ticket, despite this schema,
+two `phase-contracts.yaml` output declarations, a `failure-modes.yaml` reference, and a whole `/learn`
+analysis reading it. So every analysis below — new FM proposals, strategy tuning, gate analytics,
+bottleneck detection — had never run once.
+
+The cause was not disagreement; it was **cost**. The full schema below asks for ~30 fields appended after
+every phase, and nothing was gated on it, so it silently never happened. A perfect schema nobody fills is
+worth less than a small one that always gets written.
+
+**The required subset is small enough to write in one pass at the end of a run:**
+
+```yaml
+ticket_id: <ID>
+ticket_type: <type>
+schema_version: 1
+started_at: <ISO>          # approximate is fine — the date is what matters
+ended_at: <ISO>
+phases:                     # one line per phase that RAN; timings optional
+  - {name: <phase>, outcome: success|blocked|skipped|aborted, iterations: <n>}
+failure_modes_hit: []       # [] is a real, useful value — say it, don't omit it
+gates_triggered: []
+unknown_failures: []        # THE highest-value field: feeds new FM-XX proposals
+```
+
+Everything else in this document (per-phase timestamps, `strategy_outcomes`, `quality_signals`, …) is
+**optional enrichment**. Add it when the run genuinely produced the signal; never block the file on it.
+
+**Empty lists must be written explicitly.** `failure_modes_hit: []` means "this run hit none" — an omitted
+key is indistinguishable from "nobody recorded it", which is exactly the ambiguity that made the whole
+dataset useless (`_shared/measurement-integrity-protocol.md`, I1).
+
+**Enforcement:** the `commit` phase has a HARD PRE-CHECK on this file — see `do-ticket/phases/verify.md`
+(Phase 16). A declared artifact that no phase is gated on is an artifact that will not exist.
+
 ## Schema
 
 ```yaml
@@ -59,7 +95,7 @@ strategies_used:
   test-cases: exhaustive
   plan: first
   implement: tdd-strict
-  learn-crud: full-learn-then-use
+  api-test: full-learn-then-use      # strategy id from your live-API test skill
 
 strategy_outcomes:
   - phase: implement
@@ -118,13 +154,23 @@ type_promotions:
 # Update cycles
 update_cycles:
   count: 0
-  triggers: []  # ["pr-review-feedback", "qc-found-bug", "requirements-changed"]
+  triggers: []
+  # Format: { at: 2026-10-12, trigger: qc-found-bug, after_merge: true }
+  # trigger: requirements-changed | qc-found-bug (do-ticket-update.md step 2). Older runs hold bare strings.
+  # qc-found-bug + after_merge: true = a bug that passed every gate — the number any cost is weighed against.
 
 # PR review rounds
 review_rounds:
   count: 0
   must_fix_count: 0
   split_requests: 0
+
+# Session boundaries (SKILL.md § Sessions) — optional, one entry per boundary reached.
+# action: ended = the session stopped there; continued = the user chose to go on in the same session.
+session_boundaries: []
+  # Format: { id: S1, after_phase: plan, context_k: 380, action: ended }
+  # id: S1 | S2 | S3 | SZ (SZ = the size check fired). context_k = context size in thousands of
+  # tokens, omitted if unknown.
 
 # Post-ticket quality debrief (collected at Phase 23)
 # Written by user, prompted by 3 specific questions.
@@ -153,7 +199,7 @@ quality_signals:
 | `strategy_outcomes` | do-ticket when phase ends |
 | `failure_modes_hit[]` | do-ticket when FM-XX matches |
 | `gates_triggered[]` | do-ticket when gate fires |
-| `unknown_failures[]` | implement / learn-crud / others when an unrecognized error pattern recurs ≥3 times |
+| `unknown_failures[]` | implement / api-test / others when an unrecognized error pattern recurs ≥3 times |
 | `type_promotions[]` | do-ticket on promotion |
 | `ended_at`, `duration_seconds` | do-ticket at phase=done |
 | `quality_signals` | User — prompted by Phase 23 debrief (3 questions) |

@@ -83,7 +83,8 @@ What would you like to do?
 Or describe your problem and I'll start right away.
 ```
 
-Always respond in **English**, regardless of user language.
+Always write the **session artifacts** in **English**, regardless of user language - the investigation file, the findings doc and any customer-facing draft. They are consumed by do-ticket and by people who do not read the chat.
+The **chat reply follows the user's own language.** The English rule exists so the artifacts can be read by everyone downstream; it is not meant to pick the language of the conversation.
 
 ---
 
@@ -666,7 +667,7 @@ Unmatched failure → log to `investigation-telemetry.unknown_failures[]` → /l
 - Never write implementation code.
 - Never ask for file names, class names, or low-level technical details.
 - Always ground analysis in the domain index — cite rule_ids when claiming an invariant.
-- Always output in English (regardless of input language).
+- Always output **session artifacts** in English (regardless of input language). The chat reply follows the user's language - see the note at the top of this file.
 - **Session files are a hard gate**: write/update `investigation.md` and `investigation.log.md` BEFORE delivering the analysis response each round — not after. If files cannot be written, say so explicitly before proceeding.
 - Flag contradictions immediately — never silently overwrite earlier answers.
 - When hitting a wall, escalate (Phase 5d) — never guess beyond available domain knowledge.

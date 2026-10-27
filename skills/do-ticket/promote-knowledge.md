@@ -5,8 +5,11 @@ new patterns, new gotchas) currently dies inside `tickets/<ID>/implement-summary
 This phase extracts that knowledge and graduates it to permanent stores so the
 next ticket on the same area starts from a richer baseline.
 
-Status: **spec only** — not yet implemented. Implementation = wire as Phase 22.5
-in `phase-contracts.yaml` + add child skill or extend `promote-observations`.
+Status: **implemented** — wired as Phase 22.5 in `phase-contracts.yaml`. It runs as
+`promote-observations --mode=ticket-tail --ticket=<ID>` (the existing skill was extended, not
+duplicated). This file is the spec for that mode: `promote-observations` owns the steps, and
+points back here for Inputs, Detection rules, Classification, User gate, Ticket-folder log and
+Failure modes.
 
 ---
 
@@ -204,8 +207,8 @@ Generated: <iso>
 - new_files_created: <F>
 ```
 
-This log is the audit trail — `knowledge-audit` reads it during the next sweep
-to verify promotions stuck and weren't reverted.
+This log is the audit trail — any later cross-store review reads it to verify
+promotions stuck and weren't reverted.
 
 ---
 
@@ -241,7 +244,7 @@ to verify promotions stuck and weren't reverted.
 
 | Code | Trigger | Recovery |
 |---|---|---|
-| FM-PROMOTE-DUP-CONFLICT | Same finding text exists in 2+ stores | flag for `knowledge-audit`, do not auto-merge |
+| FM-PROMOTE-DUP-CONFLICT | Same finding text exists in 2+ stores | do not auto-merge and do not write a third copy. Log the row under `## Skipped` in `promoted.md` with reason `dup-conflict` and the path of every store that holds it, then ask the user which store is canonical; the others become a one-line pointer to it in a later cleanup |
 | FM-PROMOTE-FINGERPRINT-DRIFT | Target file mtime changed since this session opened it | re-read target, re-show user the gate |
 | FM-PROMOTE-INDEX-WRITE-FAIL | `_index.yaml` write rejected | hard stop; do-ticket blocks at this phase |
 | FM-PROMOTE-NO-ENTITY | Invariant detected but no entity in scope matches | reclassify as concept; ask user for topic name |
@@ -275,11 +278,11 @@ trends down (existing files absorb most findings), per-ticket `tokens_read` in
 
 ---
 
-## Phase-contracts.yaml entry (to add)
+## Phase-contracts.yaml entry (as wired — the live copy is in `phase-contracts.yaml`)
 
 ```yaml
   promote-knowledge:                    # Phase 22.5
-    skill: promote-knowledge (new) OR promote-observations (extended)
+    skill: promote-observations (--mode=ticket-tail)
     inputs:
       required:
         - "implement-summary.md"
@@ -315,29 +318,24 @@ trends down (existing files absorb most findings), per-ticket `tokens_read` in
 
 | Existing | Overlap | Resolution |
 |---|---|---|
-| `promote-observations` | Reads observations.md, writes to skills + `_quickref.yaml` | **Extend it** — add new sources (implement-summary, plan, git diff) and new destinations (domain/, concepts/, patterns/). Rename to `promote-knowledge` OR keep name, expand scope. Avoid two near-identical skills. |
+| `promote-observations` | Reads observations.md, writes to skills + `_quickref.yaml` | **Extended (done)** — its `ticket-tail` mode adds the new sources (implement-summary, plan, git diff) and new destinations (domain/, concepts/, patterns/). One skill, two modes; no near-identical second skill. |
 | `invariant-check --post` (Phase 19) | Updates `_maturity.yaml` for **already-known** invariants newly enforced in code | Stays as-is. invariant-check operates on `invariants_in_scope.yaml`. promote-knowledge discovers **new** invariants not in scope at plan time. Complementary, not duplicate. |
-| `learn` skill | Session retrospective on routing/skill insights | Stays as-is. learn handles meta-skill insights (which skill to invoke when). promote-knowledge handles project-domain knowledge. Different audiences. |
-| `knowledge-audit` | Cross-store coherence sweep | Reads `promoted.md` as audit input. Verifies promotions stuck. Catches missed promotions if implement-summary contains promotable content but `promoted.md` is empty. |
+| Session retrospective (if you run one) | Routing/skill insights about the session | Stays separate. A retrospective handles meta-skill insights (which skill to invoke when). promote-knowledge handles project-domain knowledge. Different audiences. |
+| Cross-store coherence review (by hand or any audit tool) | Checks that stores agree | Reads `promoted.md` as audit input. Verifies promotions stuck. Catches missed promotions: implement-summary has promotable content but `promoted.md` is empty. |
 
-**Decision needed** (not blocking spec): extend `promote-observations` vs.
-new skill. Recommend extend — same UX, similar steps, avoids two skills doing
-adjacent jobs.
+**Decided:** extend `promote-observations` rather than add a new skill — same UX,
+similar steps, and no two skills doing adjacent jobs. Done as its `ticket-tail` mode.
 
 ---
 
-## Implementation order (when ready)
+## Implementation status
 
 1. Add `promote-knowledge.md` (this file). ✓
-2. Decide: extend `promote-observations` or new skill. **Recommend extend.**
-3. Add `concepts/`, `patterns/` folders to `public-project-docs/<project>/`
-   skeleton in `scan-init`.
-4. Implement detection rules in the chosen skill (regex + entity-match heuristics).
-5. Wire into `phase-contracts.yaml` between `pr-review` and `done`.
-6. Add `--no-promote` flag to do-ticket.
-7. First trial: re-run on 2 closed tickets in dry-run mode; verify detection
-   matches manual classification.
-8. Enable for live tickets.
+2. Extend `promote-observations` with `--mode=ticket-tail`. ✓
+3. Wire into `phase-contracts.yaml` between `pr-review` and `done` (Phase 22.5). ✓
+4. Still worth doing on a new project: add `concepts/`, `patterns/` folders to the
+   `{project_docs}` skeleton, and dry-run the detection on 2 closed tickets to check it
+   matches a manual classification before trusting it on live tickets.
 
 ---
 

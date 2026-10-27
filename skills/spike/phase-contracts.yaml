@@ -1,0 +1,289 @@
+# phase-contracts.yaml — formal contracts for every `spike` phase.
+#
+# SKILL.md carries the role and the hard rules; THIS file carries what each phase reads,
+# writes, and blocks on. The phase enumeration comes from this file — a phase described
+# only in prose does not run.
+#
+# Path conventions:
+#   {ticket_dir} = {output}/tickets/<TICKET>/
+#   {answer_doc} = {output}/spikes/<TICKET>.md
+#   {state_file} = {ticket_dir}/question-ledger.yaml
+
+meta:
+  ticket_dir: "{output}/tickets/{TICKET}"
+  answer_doc: "{output}/spikes/{TICKET}.md"
+  state_file: "{output}/tickets/{TICKET}/question-ledger.yaml"
+
+# ─────────────────────────────────────────────────────────────────────────────
+phases:
+
+  preflight:                            # Phase 0
+    owner: _shared/pre-flight-protocol.md
+    tier: A
+    outputs:
+      - "resolved project fields (active, output, repos, jira_prefix)"
+    notes: >
+      Step 4 of pre-flight (two-store knowledge lookup) is NOT optional here. A spike is
+      mostly recall: the keyword sweep over both knowledge-store indexes is what
+      stops the spike re-deriving what is already on disk.
+
+  ticket:                               # Phase 1
+    reads:
+      required:
+        - "Jira issue {TICKET} — description, comments, issue links, parent epic"
+      optional:
+        - "{output}/tickets/<LINKED>/ for every linked ticket — plan.md, questions.md, api-test.md, repro/"
+        - "{output}/domain-problem-solver/{open,closed}/ — grep for the spike's topic"
+        - "{output}/knowledge_*.md — matched by keyword, per pre-flight step 4"
+    outputs:
+      - "{ticket_dir}/spike-context.yaml"
+    hard_rule: >
+      Linked tickets are read BEFORE any code or database work. A spike raised off a ticket
+      the user shipped last sprint usually has half its answer sitting in that ticket's folder.
+      Jira is the weaker copy — the local artifacts hold the telemetry and the dead ends.
+    records:
+      - "timebox — copied verbatim from the ticket; if absent, ask once and record the answer"
+      - "deliverable — where the ticket says the answer lands (comment / doc / both)"
+      - "linked_tickets[] with the local artifact paths actually found"
+
+  ledger:                               # Phase 2
+    reads:
+      required: ["{ticket_dir}/spike-context.yaml"]
+    outputs:
+      - "{state_file}"
+    algorithm: |
+      1. Scan the ticket description for lines matching the question markers the ticket uses
+         (Q-1.., Q1, "Questions to Answer" list items) and the action markers (A-1.., "Actions
+         to Take"). Copy each one VERBATIM. Do not paraphrase, do not merge two into one.
+      2. One ledger row per question:
+           id, question (verbatim), kind, needs[], method (from the matching A- line),
+           status: open, grade: null, evidence_path: null, answer: null
+      3. `kind` comes from evidence-protocol.md §1 — data-count, code-trace, runtime-behaviour,
+         external-contract, design-judgement. A question may carry two kinds; record both.
+      4. Actions with no matching question get their own row with kind: action.
+      5. Write the count: ledger_rows vs questions_found_in_ticket. They must be equal.
+    blocks_on:
+      - "questions_found_in_ticket == 0 — the ticket is not spike-shaped. Ask the user to
+         confirm a derived question list before any work; do not invent one silently."
+      - "ledger_rows != questions_found_in_ticket"
+    gate: G-SCOPE
+    cross_check: >
+      This is the count-from-the-live-source rule. The ledger is built by reading the ticket
+      now, never from what the conversation remembers the ticket said.
+
+  sources:                              # Phase 3
+    reads: ["{state_file}"]
+    outputs:
+      - "{state_file} (+ needs[] resolved per row)"
+    algorithm: |
+      For every ledger row, name the exact source its method requires and check it is reachable
+      NOW — before any answering starts, so a blocked source is known on day one, not day two.
+
+        production database   → NOT reachable by you, ever. Not a blocker: the row's method
+                                becomes "write the SQL, the user runs it". Source = user-run.
+        dev / test database   → available via the configured connection
+        code at a commit      → repo present, branch resolvable, record the SHA
+        live endpoint         → route to your live-API test skill; needs a running service + token
+        service logs          → which service, which environment, what retention
+        another party         → a partner system's team, a PO, a network owner — cannot be self-served
+
+      Each row gets: source, reachable (yes/no/unknown), and blocker (who unblocks it).
+    hard_rule: >
+      A source being unreachable does NOT downgrade the question to a cheaper source. A
+      dev-tenant count answering a production question is the single most common way a spike
+      ships a confident wrong number.
+      PRODUCTION IS A SPECIAL CASE, AND IT IS NOT A BLOCKER: you never have access and never
+      will, so a production row's method is "write the statements, the user runs them". The row
+      status becomes `awaiting-result`, not `blocked`, and the deliverable is a .sql file.
+      Only call it blocked when even the query cannot be written — a missing table name is not
+      that, it is a discovery query.
+    gate: G-PROD                        # armed here, fires in `answer`
+    blocks_on: []                       # naming a blocker never blocks the phase
+
+  answer:                               # Phase 4 — loops per ledger row
+    reads: ["{state_file}", "{ticket_dir}/spike-context.yaml"]
+    outputs:
+      - "{ticket_dir}/evidence/<Q-n>.md"
+      - "{state_file} (row updated: status, grade, answer, evidence_path)"
+    ordering: |
+      Not cheapest-first. Order by what an answer would change:
+        1. rows whose answer changes another row's method
+        2. rows that share one connection or one repo pass — batch them
+        3. rows that need someone else — raise the need EARLY so the wait runs in parallel
+        4. everything else
+    per_row_contract:
+      - "Run the method the ticket named, not a substitute."
+      - "Run the negative control first — evidence-protocol.md §3."
+      - "Write {ticket_dir}/evidence/<Q-n>.md BEFORE writing the answer sentence."
+      - "Evidence file carries: the exact statement / file:line + commit SHA / request + response,
+         the environment, the time it ran, and the raw output. Not a summary of the output."
+      - "Grade the answer per evidence-protocol.md §2 and record the grade in the row."
+      - "A number with no source in this file is a defect, not a rough figure."
+    prod_gate:
+      id: G-PROD
+      fires: "as soon as any row needs production data"
+      action: "write {ticket_dir}/prod-queries.sql and hand it over — you do NOT run anything"
+      file_contract:
+        - "Discovery queries FIRST, in their own step. Never guess a column, a table or a JSON
+           key: make the query ask the database and say so in a comment. A key with no explicit
+           [JsonPropertyName] in the model is exactly the kind of thing to discover, not assume."
+        - "A negative control per count — a variant that MUST return rows. A zero with no
+           passing control is an untested query, not a finding."
+        - "A totals check: the buckets must add up to the ungrouped count."
+        - "Run order numbered, and a closing note telling the user to send back zeros and
+           errors too. An error names a wrong column, which is itself a result."
+        - "Cap any row dump, and pair it with the uncapped count so a slice is never read as
+           the whole population."
+        - "Say in the header that every statement is read-only, so the person running it can
+           check that claim before pasting."
+      forbids:
+        - "UPDATE / INSERT / DELETE / MERGE / CREATE / DROP / ALTER — any of them voids the file"
+        - "temp tables, CTE-into-table, session settings that persist"
+        - "SELECT * on a configuration table — read named columns; those tables hold secrets"
+      on_results_returned: "the row moves awaiting-result -> answered, graded `proven`, and the
+        evidence file carries the statement, the returned output verbatim, and the control"
+    failure_pivots: "failure-modes.yaml — SPIKE-FM-01..07"
+
+  crosscheck:                           # Phase 5 — the gate that makes the rest real
+    reads: ["{state_file}", "{ticket_dir}/evidence/"]
+    outputs:
+      - "{ticket_dir}/crosscheck.md"
+    checks:
+      - id: C1
+        name: every question has a row
+        fails_when: "any question in the ticket has no ledger row"
+      - id: C2
+        name: every row has a status that is not open
+        fails_when: "any row is still `open` and the timebox has not been declared spent"
+      - id: C3
+        name: every answered row has an evidence file that exists and is non-empty
+        fails_when: "evidence_path missing, absent on disk, or holds only a summary"
+      - id: C4
+        name: every number carries its query and environment
+        fails_when: "a figure in an answer appears in no evidence file"
+      - id: C5
+        name: no negative control was skipped
+        fails_when: "a data-count row has no control result recorded"
+      - id: C6
+        name: answers do not contradict each other
+        fails_when: "two rows imply different facts — surface both, do NOT smooth them"
+      - id: C7
+        name: the measurement was not empty
+        fails_when: "a row's evidence is a 0-row result with no control proving the query works"
+        owner: _shared/measurement-integrity-protocol.md
+    blocks_on: "any check fails → return to `answer` for the named rows"
+    hard_rule: >
+      This phase prints the SIZE of what it checked — rows checked, evidence files read,
+      numbers traced. A crosscheck that reports clean over zero rows is the false green this
+      whole skill is built to avoid.
+
+  recommend:                            # Phase 6
+    reads: ["{state_file}", "{ticket_dir}/crosscheck.md"]
+    outputs:
+      - "{ticket_dir}/follow-ups.md"
+    algorithm: |
+      For each finding that implies work:
+        - one draft ticket: type (bug / story / refactor / migration), one-line scope,
+          the evidence row it rests on, and the grade of that evidence
+        - size it: is this a one-file fix or a cross-service change? say which, and say
+          how confident that sizing is
+      "Build nothing" is a valid and often correct recommendation. Write it with its reason.
+      A recommendation resting on an `inferred` row states that in the same sentence.
+    forbids:
+      - "recommending work the spike's own scope table put out of scope"
+      - "changing the linked ticket's scope — that is the PO's call, raise it as a question"
+
+  spike-doc:                            # Phase 7
+    reads: ["{state_file}", "{ticket_dir}/follow-ups.md", "{ticket_dir}/crosscheck.md"]
+    outputs:
+      - "{answer_doc}"
+    reader: >
+      THE PERSON WHO ASKED FOR THE SPIKE, AND WHO WILL DECIDE WHAT HAPPENS NEXT. Not a
+      reviewer auditing your method. Write for someone with two minutes who must choose.
+    shape: |
+      # <TICKET> — <the ticket's own question, verbatim>
+
+      ## The answer              the finding, in the first three lines. No preamble.
+      ## What I need from you    THE POINT OF THE DOCUMENT. Each decision as its own heading:
+                                 what it is, how big, and whether it is yours or theirs. Plus
+                                 anything you need from them (a query run, an access, an ask
+                                 of a third party) and whether it holds up the decisions.
+      ## The <N> questions       ONE table: question + where it stands, in plain words.
+      ## <the core story>        the one or two questions that carry the finding, with the
+                                 file:line evidence inline. Headed by what it explains, not
+                                 by a question number.
+      ## <remaining questions>   one short section each
+      ## Not worth building yet  with the reason, so nobody re-proposes it next month
+      ## For whoever picks it up design constraints for the builder. Skippable by the decider.
+      ## How to check any of this  the commands, so a second person reproduces it
+    hard_rule: >
+      Decision first, questions second. A spike ordered by the ticket's question list makes its
+      reader work out the decision for themselves, which is the job they asked you to do. On
+      PROJ-11503 the first draft opened on "Q-1: not answered" — the weakest fact in the
+      document, in the strongest position.
+    forbidden_in_the_body: >
+      The skill's own vocabulary. `Grade: proven`, "negative control", "measurement integrity",
+      ledger row ids — these prove YOUR process to a reviewer, and the reader did not ask for a
+      grading system, they asked a question. Say it in their words instead: "read it in the
+      code" / "needs the query run" / "only the partner can answer". The grades stay in the ledger and
+      the evidence files, where they belong.
+    also_hard: >
+      "How to check any of this" is not optional, but it goes LAST. A spike whose numbers cannot
+      be reproduced next month is a one-time opinion with citations.
+
+  publish:                              # Phase 8
+    reads: ["{answer_doc}"]
+    outputs:
+      - "one Jira comment on {TICKET}"
+      - "{state_file} (+ published_at)"
+    gate: G-PUBLISH
+    rules:
+      - "The comment is RENDERED from {answer_doc}. Never written fresh — two copies drift."
+      - "The ticket named Jira as the destination, so answering there is in scope.
+         Starting a conversation with a person is not."
+      - "Show the user the full text first. They approve the words, not just the act."
+      - "No @-mention of any person unless the user asks by name."
+      - "If the comment exceeds what Jira renders well, post the short answer + per-question
+         answers, and link the doc for the evidence dump."
+
+  follow-ups:                           # Phase 9
+    reads: ["{ticket_dir}/follow-ups.md"]
+    outputs:
+      - "{ticket_dir}/follow-ups.md — the drafts, handed over. NOT created tickets."
+    gate: G-TICKETS
+    default: hand-over                  # the spike RECOMMENDS; the PO raises
+    hard_rule: >
+      A spike does not create tickets. It produces drafts good enough for the PO to raise from,
+      and stops there. Deciding what enters the backlog is the PO's job — a spike that files
+      its own recommendations has made a prioritisation call nobody asked it for. Set on
+      PROJ-11503, 2026-09-22.
+    creating_is_allowed_only_when: >
+      The user names the action for specific drafts in this session ("raise R-1", "raise
+      R-1 and R-3"). Then, and only then, route to your team's ticket-writing skill or standard,
+      link each new ticket back to the spike, and cite the evidence row it rests on.
+    note_on_the_ticket_saying_otherwise: >
+      A spike ticket's own action list may read "Raise a ticket per item recommended" (PROJ-11503's
+      A-3 does). That does not override this. The action is satisfied when the drafts are
+      published where the PO can act on them — say so plainly rather than letting it read as
+      unfinished work.
+
+  done:                                 # Phase 10
+    outputs:
+      - "{ticket_dir}/spike-telemetry.yaml"
+    records:
+      - "questions_total, answered, blocked, external, open_at_timebox"
+      - "grade histogram: proven / observed / inferred"
+      - "time_spent vs timebox"
+      - "negative controls run, and how many caught a broken query"
+      - "follow_up_tickets_created"
+      - "which hard rule, if any, was bent — and why"
+    consumed_by: "a later retrospective over spike runs"
+
+# ─────────────────────────────────────────────────────────────────────────────
+ordering_invariants:
+  - "ledger (2) before any source is touched — you cannot scope what you have not counted"
+  - "sources (3) before answer (4) — a blocker found on day two costs the timebox"
+  - "crosscheck (5) before spike-doc (7) — the doc may only carry checked rows"
+  - "spike-doc (7) before publish (8) — the comment is rendered, never authored twice"
+  - "publish (8) and follow-ups (9) both require their gate; no flag auto-approves them"
+  - "no phase writes product code at any point"

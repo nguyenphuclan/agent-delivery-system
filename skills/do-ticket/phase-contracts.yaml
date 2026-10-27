@@ -59,7 +59,7 @@ contracts:
       - "(no file output; may rebase or block on conflict)"
     state_writes:
       phase: rebase-check  # or 'blocked' on conflict
-    failure_modes: [FM-REBASE-CONFLICT, FM-LARGE-DIVERGENCE]
+    failure_modes: [FM-REBASE-CONFLICT, FM-LARGE-DIVERGENCE, FM-SHARED-VERSION-COLLISION]
 
   requirements:                         # Phase 5
     skill: jira-to-requirements
@@ -181,6 +181,33 @@ contracts:
       "Show count + offer edit before proceeding"
     cross_check: "Every 'must not / cannot / reject when' constraint in analysis has ≥1 negative case"
 
+  blast-radius:                         # Phase 8.7
+    skill: do-ticket (internal)
+    spec: do-ticket/blast-radius.md
+    inputs:
+      required:
+        - "requirements-analysis.md (or behavior-spec.md)"
+        - "ticket-context.yaml"
+      optional:
+        - "test-cases.md"
+        - "{project_docs}/code/domain_index.yaml (starting point for the surface probe, NOT a boundary — the facts that kill designs live outside the index)"
+    outputs:
+      - "blast-radius.md"
+      - "ticket-context.yaml (+ blast_radius.*, armed_gates[], no_marker)"
+    state_writes:
+      phase: blast-radius
+    blocks_on: []                       # counting asks nothing of the user
+    skip_when: "ticket_type in [doc-only, spike]"
+    lite_when: "ticket_type == hotfix — touched-method counts only, no inventory"
+    cross_check: >
+      A count, never a claim. Every number carries the exact command that produced it. An unproducible
+      number is written `not-countable — <why>`, which is itself a finding. NO DESIGN in this phase —
+      picking a shape here is the defect the phase exists to stop.
+    hard_rule: >
+      "rather than adding infrastructure" is not a valid reason until the extension-point inventory is on
+      disk AND empty. On PROJ-11332 that sentence chose the shape for the whole ticket and was factually
+      wrong — the project already registered several save-time interceptors in its DbContext setup.
+
   plan:                                 # Phase 9
     skill: implement-plan
     readiness_gate: 9
@@ -190,6 +217,7 @@ contracts:
         - "requirements-analysis.md (or behavior-spec.md)"
         - "test-cases.md"
         - "ticket-context.yaml"
+        - "blast-radius.md (Phase 8.7 — every count in the plan must come from here; never re-derive or estimate)"
         - "{project_docs}/code/domain_index.yaml"
       optional:
         - "{project_docs}/patterns/_index.yaml (if exists — for pattern injection; auto-induction fallback)"
@@ -254,12 +282,25 @@ contracts:
       optional: []
     outputs:
       - "Unit test files (RED) in test project"
-      - "unit-tests-written.md"
+      - "unit-tests-written.md (MUST include the machine-emitted RED line — see red_count_contract)"
     state_writes:
       phase: unit-tests
+      red_count: "<int>  # tests observed FAILING at RED; reconciled against green_count at Phase 12"
+    red_count_contract:
+      # A test that does not RUN is also not RED. The RED phase is the cheapest place to catch a
+      # filter/typo that matches zero tests — free, no extra tooling. Do not skip recording it.
+      rule: "Run the new tests and paste the runner's own summary line verbatim into unit-tests-written.md."
+      format: "RED: <N> failed, <P> passed, <S> skipped — <cmd> exit <code>"
+      example: "RED: 5 failed, 0 passed, 0 skipped — dotnet test --filter FullyQualifiedName~OrderRecalcTests exit 1"
+      write: "ticket-context.yaml → red_count: <N failed>"
+    failure_modes: [FM-FALSE-GREEN-TEST, FM-EMPTY-MEASUREMENT]
     blocks_on:
       - "false-green tests (FM-FALSE-GREEN-TEST)"
       - "build failure (FM-DLL-LOCKED, others)"
+      # Empty-measurement guard: an empty measurement is N/A, never a pass.
+      - "RED line absent from unit-tests-written.md → cannot proceed (no evidence the tests ran)"
+      - "N failed == 0 at RED → the filter matched nothing, or the tests assert nothing. STOP and
+         show the runner output. Never interpret '0 failed' at RED as 'already satisfied'."
     stale_check: "phase_readiness[10] — requires build artifact fresh"
     fe_mode:
       when: "ticket_type=fe-only OR FE files in resolved.touched_files"
@@ -267,7 +308,59 @@ contracts:
         - "Jest/Karma .spec.ts files"
         - "Storybook .stories.ts for UI changes"
 
+  legacy-contract:                      # Phase 9.8 — T0
+    skill: do-ticket (internal)
+    spec: do-ticket/legacy-contract.md
+    skip_when: "ticket-context.armed_gates is empty (most tickets)"
+    inputs:
+      required:
+        - "blast-radius.md (counts + extension-point inventory)"
+        - "plan.md (shape + options considered)"
+        - "ticket-context.yaml (armed_gates[], no_marker)"
+      optional:
+        - "{project_docs}/build/test.yaml (frozen-test command)"
+    outputs:
+      - "legacy-contract.md"
+      - "ticket-context.yaml (+ contract_approved_at, frozen_baseline{cmd,passed,failed,failure_names,preconditions})"
+    state_writes:
+      phase: legacy-contract
+    runs_a_command: >
+      Runs the frozen tests BEFORE any code change. Records cmd + pass/fail counts + THE NAME OF EVERY
+      FAILURE + preconditions (e.g. docker_running). A baseline with unnamed failures hides which
+      capabilities were never exercised — PROJ-11350 printed "147 passed" while blind to every DB
+      integration test because Docker was down.
+    user_gate:
+      "G-T0 — print the self-check block, ask once. The user approves a PREDICATE, not a plan."
+    blocks_on:
+      - "agent_owned_open != 0"
+      - "any Q-CHOICE in plan.md with no options table"
+      - "extension_point: EDIT while the inventory has an unexplained fits:yes row"
+      - "frozen baseline missing, or its failures unnamed"
+
+  contract-recheck:                     # Phase 12.7 — T1
+    skill: do-ticket (internal)
+    spec: do-ticket/legacy-contract.md
+    skip_when: "ticket-context.armed_gates is empty"
+    inputs:
+      required:
+        - "legacy-contract.md"
+        - "ticket-context.frozen_baseline (VERBATIM — never re-derived)"
+    outputs:
+      - "ticket-context.yaml (+ contract_held: true|false, counts_moved[])"
+    state_writes:
+      phase: contract-recheck
+    cross_check: >
+      Re-run the SAME command against the SAME baseline. Pass count >= baseline AND the failure set
+      unchanged AND preconditions identical AND blast-radius counts re-run to the same values.
+      A changed precondition INVALIDATES the comparison — it is not a pass.
+    on_fail: "loop back to implement (11). A moved count means the blast radius grew after approval → re-approve at T0."
+    payoff: "All green → no second review. Print one line carrying the scope, then continue."
+
   implement:                            # Phase 11
+    entry_gate: >
+      G-T0 — if ticket-context.armed_gates is non-empty and contract_approved_at is unset, BLOCK and return
+      to Phase 9.8. Auto-implement on a legacy surface without an approved contract is exactly what the
+      contract exists to make safe.
     skill: implement
     strategy_registry: implement/strategies.yaml
     inputs:
@@ -281,7 +374,7 @@ contracts:
     outputs:
       - "Source code changes"
       - "implement-log.md"
-      - "implement-summary.md (must include 'Regression check: PASS')"
+      - "implement-summary.md (must include the machine-emitted Regression line — see regression.evidence_contract)"
       - "ticket-context.yaml (+ strategies_picked.implement)"
     state_writes:
       phase: implement
@@ -292,19 +385,46 @@ contracts:
       - "domain layer importing infrastructure (FM-LAYER-VIOLATION)"
 
   regression:                           # Phase 12
-    skill: do-ticket internal (verifies implement-summary)
+    skill: do-ticket internal (verifies the RUN, not the claim)
     readiness_gate: 12
     inputs:
       required:
         - "implement-summary.md"
-      optional:
-        - "{project_docs}/build/test.yaml (test run command — used to re-run suite before confirming PASS)"
+        - "{project_docs}/build/test.yaml (test run command)"   # was optional — a claim is not a run
+        - "ticket-context.red_count (from Phase 10)"
+      optional: []
     outputs:
-      - "(verification only — no file)"
+      - "(verification only — no file; the numbers land in implement-summary.md + ticket-context)"
     state_writes:
       phase: regression
+      green_count: "<int>  # tests observed PASSING here"
+      tests_run: "<int>"
+    # ---------------------------------------------------------------------------------------
+    # Empty-measurement guard (the false green). This gate previously passed by finding the STRING
+    # 'Regression check: PASS' inside a markdown file the agent had just written itself.
+    # A run that matched zero tests (mistyped --filter, wrong test project, DB-integration
+    # classes excluded by the local filter) exits 0, so the agent wrote PASS truthfully and
+    # phases 13 → 16 all unlocked on a measurement that never happened.
+    # Burned for real: PROJ-11098 — local green, CI red (reflection callers + Postgres
+    # integration classes never ran locally).
+    # A count cannot be faked the way a verdict can. Gate on the count.
+    # ---------------------------------------------------------------------------------------
+    evidence_contract:
+      rule: "Re-run the suite HERE. Do not accept implement's word for it."
+      required_line: "Regression: <P> passed, <F> failed, <S> skipped (baseline <B>) — <cmd> exit <code>"
+      example: "Regression: 214 passed, 0 failed, 3 skipped (baseline 214) — dotnet test exit 0"
+      baseline: "B = tests_run recorded on the last green run of this branch, or on clean base if
+                 none. First run on a branch: record B and say so — do not silently set B = P."
+      three_states: "PASS (F==0 and P>0) | FAIL (F>0) | N/A (P+F==0 — could not measure)"
+    failure_modes: [FM-EMPTY-MEASUREMENT, FM-PLAN-CHANGESET-DRIFT, FM-TESTDB-STALE-OR-SHARED]
     blocks_on:
-      - "implement-summary missing 'Regression check: PASS'"
+      - "implement-summary missing the machine-emitted Regression line (a prose 'PASS' is not evidence)"
+      - "tests_run == 0 → N/A, NOT pass. The filter matched nothing. Show the raw runner output."
+      - "P < baseline B → the suite SHRANK. Something stopped being collected; explain before proceeding."
+      - "green_count < ticket-context.red_count → fewer tests passing here than were failing at RED;
+         the new tests are not all being collected."
+      - "test.yaml declares an integration/DB suite that the local filter excludes → run it, or record
+         it explicitly as DEFERRED-TO-CI in implement-summary. Never let an excluded suite read as green."
       - "FM-PLAN-CHANGESET-DRIFT (files in diff not in plan)"
     stale_check: "phase_readiness[12] — requires build artifact fresh"
 
@@ -325,11 +445,23 @@ contracts:
       - "{project_docs}/domain/_field_impact.yaml (LAZY/OPTIONAL — appended ONLY when the diff touches a base value: dimension 11 supersession-hygiene; absent otherwise. A domain registry, underscore-prefixed like _relationships.yaml. Read at Phase 9 §A; deduped + reindexed at Phase 22.5. See code-quality-review.md §B 'Base-value supersession hygiene')"
     state_writes:
       phase: code-quality-review          # OR loops to implement (11) when must-fix open
-    failure_modes: [FM-QUALITY-MUST-FIX]
+    failure_modes: [FM-QUALITY-MUST-FIX, FM-EMPTY-MEASUREMENT, FM-REVIEW-LOOP-EXHAUSTED]
+    # Empty-measurement guard: 'all clean' from a review that examined NOTHING is indistinguishable
+    # from 'all clean' from a review that examined 40 files. An empty diff is easy to produce by
+    # accident — wrong <base> after a rebase, renamed base branch, or git running in the wrong
+    # repo dir on a multi-repo ticket. Always print the scope measured.
+    scope_evidence:
+      rule: "Every verdict line states what was actually reviewed. No bare 'clean'."
+      format: "<verdict> — <F> files, <A> added lines reviewed (base: <ref>)"
+      example: "✅ Quality review clean — 14 files, 380 added lines reviewed (base: origin/master)"
     blocks_on:
       - "any quality_findings[status=open, severity=must-fix] → loop to implement (11), re-run 12/13/13.5"
+      - "diff scope resolves to 0 files or 0 added lines → N/A, NOT clean. Re-resolve <base> and
+         confirm the repo dir before re-running; on a multi-repo ticket check EVERY repo."
+      - "review loop hit its max rounds with findings still open → FM-REVIEW-LOOP-EXHAUSTED (stop, report to the user)"
     user_gate:
-      "If only nice-to-have findings: surface once, per-item fix-now/defer. If clean: 1-line summary, no prompt."
+      "If only nice-to-have findings: surface once, per-item fix-now/defer. If clean: 1-line summary
+       INCLUDING the scope figures (scope_evidence.format), no prompt."
     scope_discipline: "DIFF only — never the whole repo. Pre-existing debt in touched-but-unchanged code = out-of-scope finding (log / optional spawn_task), never fixed in this ticket."
     skip_when:
       - "ticket_type ∈ {doc-only, spike, hotfix}"
@@ -350,13 +482,21 @@ contracts:
       - "(no file)"
     state_writes:
       phase: env-gate
+    # A human attestation ("yes, it's running") is honest and still wrong when the process holds a
+    # stale DLL — phase 15 then tests the OLD code and passes. Turn the attestation into a probe
+    # wherever run.yaml gives you one; keep the human answer as the fallback, not the only signal.
+    liveness_probe:
+      rule: "For each service with a health/ping endpoint in build/run.yaml, curl it and show the
+             result next to the user's confirmation. Probe failure ≠ block — it is a warning that
+             the user's 'yes' and the machine disagree; ask which is right."
+      staleness_hint: "If the change touched a running service, compare the service's build/start
+                       timestamp against the last local build. Older → it is serving pre-change code."
     user_gate:
-      "List required services from build/run.yaml + wait for confirmation"
+      "List required services from build/run.yaml + show probe results + wait for confirmation"
     stale_check: "phase_readiness[14] — requires build artifact fresh"
 
   api-test:                             # Phase 15
-    skill: learn-crud
-    strategy_registry: learn-crud/strategies.yaml
+    skill: "your live-API test skill (whatever holds this project's requests, tokens and ports)"
     inputs:
       required:
         - "ticket-context.yaml"
@@ -367,10 +507,31 @@ contracts:
     outputs:
       - "Updated entity YAMLs in public-project-docs/<project>/api/entities/"
       - "Postman collection synced"
-      - "ticket-context.yaml (+ strategies_picked.learn-crud)"
+      - "{ticket_dir}/test-evidence/{flow}/01_request.txt + 02_response.txt (+ 03_db_verify.txt)"
+      - "ticket-context.yaml (+ strategies_picked.api-test, + api_flows_verified[])"
     state_writes:
       phase: api-test
-    failure_modes: [FM-SILENT-API-BUG, FM-WRONG-ENV-PROFILE]
+    # This is a MANDATORY pre-commit gate for crud-feature / bugfix-investigated, yet it used to
+    # conclude on the agent's word with no artefact. A flow you cannot replay from disk was not
+    # verified.
+    evidence_contract:
+      rule: "A flow is 'verified' only if its request/response is on disk. No artefact ⇒ not verified."
+      files:
+        - "01_request.txt  — method, URL, headers (token redacted), body"
+        - "02_response.txt — HTTP status + full body"
+        - "03_db_verify.txt — the verification query AND its row count, when the flow persists anything"
+      expected_vs_observed: "Head 02_response.txt with two lines — 'Expected: …' / 'Observed: …' — so
+                             the verdict is checkable later without re-running anything."
+      empty_result_rule: "A verification query returning 0 rows is N/A, never PASS. Zero rows cannot
+                          distinguish 'the write failed' from 'the query is wrong'. State the expected
+                          row count BEFORE running, and reconcile."
+    failure_modes: [FM-SILENT-API-BUG, FM-WRONG-ENV-PROFILE, FM-EMPTY-MEASUREMENT, FM-FALSE-GREEN-TEST]
+    blocks_on:
+      - "any flow reported verified with no evidence files on disk"
+      - "03_db_verify.txt shows 0 rows on a flow that should have persisted → N/A, return to implement
+         only after confirming the query itself is right (FM-SILENT-API-BUG covers the write; this
+         covers the measurement)"
+      - "a multi-step flow where an earlier step returned >=400 → MEASUREMENT INVALID (FM-FALSE-GREEN-TEST pivot assert-every-step)"
     skip_when:
       - "strategy = skip"
       - "ticket_type ∈ {doc-only}"
@@ -387,11 +548,13 @@ contracts:
       - "git commit (only files from implement-summary.md)"
     state_writes:
       phase: commit
+    failure_modes: [FM-SHARED-VERSION-COLLISION]   # re-check shared <Version> here too: a clean rebase can silently duplicate master's version
     user_gate:
       "Show proposed message + file list, wait for y/n"
     invariants:
       - "Never use git add -A — only stage explicit files"
       - "Commit format: <TICKET_ID>: short description"
+      - "If shared-lib repo in changeset: commit it FIRST with <Version> = master+1 (FM-SHARED-VERSION-COLLISION)"
 
   pre-push:                             # Phase 17
     skill: push-code                     # standard pre-push gate — the ONLY sanctioned push path (no plain `git push` fallback)

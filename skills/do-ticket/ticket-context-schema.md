@@ -41,6 +41,11 @@ Phase numbers below match the canonical enumeration in `do-ticket/SKILL.md`.
 | 0 (load-state, --from-dps) | do-ticket | `dps_session_id`, `dps_session_path`, `dps_final_status`, `dps_open_assumptions`, `dps_suggested_strategy` |
 | 13 (completeness-audit) | do-ticket | `completeness_gaps` |
 | 9 (plan, §A) | implement-plan | `structural_quality_decisions` |
+| 9 (plan) | implement-plan | `decisions[]` (work mode per decision — see below) |
+| 8.7 (blast-radius) | do-ticket | `blast_radius.*`, `armed_gates[]`, `no_marker` (see `blast-radius.md`) |
+| 9.8 (legacy-contract) | do-ticket | `contract_approved_at`, `frozen_baseline` (see `legacy-contract.md`) |
+| 10 / 12 (unit-tests / regression) | do-ticket | `red_count`, `green_count`, `tests_run` (see `phase-contracts.yaml`) |
+| 12.7 (contract-recheck) | do-ticket | `contract_held`, `counts_moved[]` |
 | 13.5 (code-quality-review) | do-ticket | `quality_findings`, `deferred_quality_items` |
 | 15 (api-test, ad-hoc) | do-ticket | `adhoc_findings` |
 | 22 (pr-review) | do-ticket | `deferred_review_items` |
@@ -115,7 +120,7 @@ strategies_picked:
   test-cases: null
   plan: null
   implement: null
-  learn-crud: null
+  api-test: null                    # strategy id from your live-API test skill, if it has strategies
 
 # Set by phase 13 (completeness-audit) — one entry per gap found
 # status: open | resolved | deferred | rejected
@@ -138,6 +143,38 @@ structural_quality_decisions: []
 #   - question: layer-placement | new-vs-extend | improve-vs-mirror | duplication-of-existing
 #     verdict: "new code uses AnyAsync(predicate) instead of mirroring ToList+foreach in TaskService"
 #     confidence: high       # low confidence surfaces in Phase 9 CRITICAL review
+
+# Set by phase 9 (plan) — every non-trivial decision carries its WORK MODE.
+# The mode is a ROUTER, not a label: it decides what the agent owed on that decision.
+#   M1          — settleable from the code or data: one command answers it. Settle it, never ask.
+#   M2-open     — a real choice between shapes: owes an `## Options considered` table (≥2 options).
+#   M2-absolute — fixed by an outside constraint (contract, regulation, a lead's order): owes its
+#                 source and the condition under which it stops holding.
+#   M3          — no one knows the answer up front: co-solved with the user in rounds, where each
+#                 round must bring a NEW code fact.
+decisions: []
+# Format:
+#   - id: 1
+#     text: "pin the flow version in OrderCreator.Create"
+#     mode: M3             # M1 | M2-open | M2-absolute | M3
+#     settled_by: "grep '\\.Add(order' -> 1 site"   # M1 ONLY — the command that settled it
+#     options_count: 3     # M2-open / M3 ONLY — candidates in `## Options considered`
+#     rounds: 2            # M3 ONLY — rounds that carried a NEW code fact. Rhetoric does not count
+#     source: "customer contract"      # M2-absolute ONLY
+#     revisit_when: "the history table moves to the new audit store"   # M2-absolute ONLY — outside orders expire
+#
+# GATE — checked at Phase 9.8 (G-T0) and at Phase 9 exit. Each is a DEFECT, not a warning:
+#   M1 with an open question               -> it was settleable; settle it, do not ask
+#   M2-open / M3 with options_count < 2    -> a bare choice handed to the user
+#   M2-absolute missing source             -> an outside constraint becomes permanent by accident
+#   M3 with rounds == 0                    -> co-solve claimed, never run. This is the PROJ-11350
+#                                             failure: the plan's own section said ORM change
+#                                             tracking could not do this, then it was built on ORM
+#                                             change tracking with 0 rounds recorded.
+#
+# ANTI-GAMING: never lower a defect count by DOWNGRADING a mode. Relabelling an M3 as M2-open to dodge
+# the rounds check is the severest defect here — worse than the missing round. A metric reduced by
+# suppressing what it measures is a broken metric.
 
 # Set by phase 13.5 (code-quality-review) — diff-scoped findings
 # status: open | resolved | deferred | rejected ; severity: must-fix | nice-to-have | out-of-scope

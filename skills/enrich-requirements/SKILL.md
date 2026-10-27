@@ -1,6 +1,7 @@
 ---
 name: enrich-requirements
-description: PO-proxy phase. Reads raw Jira requirements (requirements.md) and enriches them into a detailed product spec — user flows, acceptance criteria in Given/When/Then form, edge cases a domain-aware PO would catch, and open questions to escalate. Reads project docs (domain index, flows, concepts, lifecycle, incidents) — NEVER reads source code. Output: requirements-enriched.md, consumed by analyze-requirements as the new input baseline.
+description: >
+  PO-proxy phase. Reads raw Jira requirements (requirements.md) and enriches them into a detailed product spec — user flows, acceptance criteria in Given/When/Then form, edge cases a domain-aware PO would catch, and open questions to escalate. Reads project docs (domain index, flows, concepts, lifecycle, incidents) — NEVER reads source code. Output: requirements-enriched.md, consumed by analyze-requirements as the new input baseline.
 ---
 
 ## Trigger
@@ -146,6 +147,47 @@ Fill in the following, drawing ONLY from raw requirements + project docs (no cod
 - When: trigger (user action, scheduled event, message)
 - Then: observable outcome (state change, UI feedback, downstream event)
 - Each AC is testable and binary (pass/fail, no judgment).
+
+**AC minimality — one observable rule = one AC.** Downstream (the team's QC test-case generator) turns *each* AC into
+exactly one test case, so a bloated AC set becomes a bloated, duplicate-ridden test suite. Author the minimal set:
+- **Do not restate one invariant as several ACs.** The forward direction, the reverse/symmetric direction, and the
+  read-back of the *same* rule are ONE AC — put symmetry + read-back in that AC's **Then**, not in new ACs. Split
+  only when the *mechanism* differs, not just the phrasing.
+- **Regression guardrails are not ACs, edge cases, or SCs.** "Existing behavior X (a path this change does not
+  touch) stays unchanged" is a guardrail — it belongs ONCE in the **out-of-scope** note, NOT as a Given/When/Then
+  AC, NOT as an `### Edge cases` bullet, and NOT as a success criterion. QC mints a TC from each of those channels
+  (one per acceptance scenario AND one per edge-case bullet), so a guardrail repeated across them = several surplus
+  regression tests. Only behavior the ticket *changes* earns an AC / edge case / SC.
+- **Scope ACs to the change, not the domain.** Family-wide generalisations, back-fill of pre-existing rows, and
+  engine/resolver internals the ticket does not alter are assumptions or out-of-scope, not ACs.
+(Observed PROJ-10240: one coexistence invariant written as 4 ACs + 2 "unchanged" guardrails-as-ACs → QC generated
+duplicate + surplus-regression cases. Any later step that renders the spec for another audience can repeat this
+check as a backstop, but authoring it minimally *here* is the true fix.)
+
+**Plain-language register — write ACs a second-language QC reader parses on the first pass.** QC and PO read these ACs
+and the test cases generated from them, often in English as a second language. Use the common word, not the academic
+one:
+
+| Write | Not |
+|---|---|
+| use | utilize, leverage |
+| start | commence, initiate |
+| stop | terminate |
+| before | prior to |
+| if | in the event that |
+| so | consequently, hence |
+| enough | sufficient |
+| keep | retain |
+| the same | identical |
+| more | additional |
+| about | regarding, approximately |
+| make sure | ensure |
+| show | demonstrate |
+
+One idea per sentence; a Given/When/Then is a single plain action + a single plain outcome. Keep exact domain/product
+terms as-is — plain language applies to the filler words around the domain nouns, never the nouns themselves.
+Self-check before you finish: no dictionary needed to read an AC, and no sentence carries two ideas joined by
+"which", "whereby" or a stacked clause.
 
 **3c. Edge cases the PO didn't mention**
 Use this checklist — only include items the requirement plausibly hits:

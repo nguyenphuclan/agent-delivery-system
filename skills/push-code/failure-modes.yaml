@@ -13,7 +13,17 @@ gates:
     trigger: "dotnet-sonarscanner absent | dotnet-coverage absent | python absent | token_env unset | Sonar server unreachable or token invalid"
     action: "Stop. Print exactly which pieces are missing (with the probe command) and point to push-code/setup.md. A skipped Sonar gate that reads as green is the one thing this skill exists to prevent — never silently proceed to push. NOTE: Java is NOT a prerequisite (the gate never runs the Java upload step)."
 
+  G-REVIEW-MISSING:
+    # Not a pre-flight stop: step 2b, after the changeset is known. See SKILL.md "Step 2b".
+    trigger: "step 2b finds no code-quality-review.md for this diff, or one that is STALE (older than the last commit, or names a different / no base ref) or HOLLOW (0 files / 0 added lines in its scope line); ticket_type not in doc-only | spike | hotfix"
+    action: "Do not analyze/push. Run the review NOW on this diff (do-ticket phase 13.5, code-quality-review.md §B), write the artifact with a scope SENTENCE naming the base ref/sha + file and added-line counts, resolve every must-fix, then re-run from step 2b. Prose in chat is not an artifact."
+
 failure_modes:
+  FM-STALE-BASE:
+    severity: block
+    trigger: "step 1 ran without `git fetch origin <base>` first | content diff vs the fetched base is empty (work already merged, e.g. squash-merge) | `git log origin/<base>..HEAD` holds commits from another ticket"
+    action: "Do not measure or push. Fetch the base and re-run step 1. Already merged → do not open a PR from this branch; cut a fresh branch from the refreshed base and move across only what is genuinely new. Foreign commits → say so and let the user choose: split them out, or widen the PR description to name both tickets. Commit count is not evidence; content diff is."
+
   FM-SECRETS-IN-DIFF:
     severity: hard-stop
     trigger: "credential/secret/token/private-key pattern in the diff, or a staged .env / appsettings.*.json with real values"
@@ -36,7 +46,7 @@ failure_modes:
 
   FM-SONAR-NEWISSUE:
     severity: block
-    trigger: "parse-sonar-issues.py exits 1 — one or more S#### rule issues land on diff-added lines"
+    trigger: "parse-sonar-issues.py exits 1 — one or more S#### / CA#### / CS#### rule issues land on diff-added lines (or inside a touched member / class for method- and class-scoped rules)"
     action: "Do not push. List each (rule · file:line · message) the parser printed. Fix them (common: S3776 complexity → extract a method; S125 → delete/reword a code-like comment; S3358 → de-nest the ternary). Re-run from step 4 (rebuild so the analyzers re-run). Issues on pre-existing lines are context only — do not gate on them."
 
   FM-COVERAGE-LOW:

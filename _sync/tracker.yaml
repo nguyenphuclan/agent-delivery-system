@@ -6,8 +6,10 @@
 #   3. Apply changes to this repo
 #   4. Update last_synced_commit + last_synced_at below
 #
-# HONESTY RULE: only advance last_synced_commit when a skill's FULL delta was synced.
-# A partial sync keeps the old commit + a `partial_sync` note. A lying tracker is worse than a
+# HONESTY RULE: only advance last_synced_commit when EVERY hunk of a skill's delta was either
+# synced or written down under that skill's `skipped` / `deferred` list (2026-10-27: a selective
+# sync with each skip recorded is not a silent drop). Anything not decided keeps the old commit
+# + a `partial_sync` note. A lying tracker is worse than a
 # stale one — it silently drops the unsynced remainder forever.
 #
 # VERIFY, DON'T TRUST: the two tracker copies (private + public) have drifted apart before, in
@@ -27,8 +29,13 @@ skills:
     source_files:
       - skills/scan-init/SKILL.md
       - skills/scan-init/surface-layers.md
-    last_synced_commit: 91ae36b
-    last_synced_at: 2026-08-29
+    last_synced_commit: b76f7fd
+    last_synced_at: 2026-10-27
+    sync_2026_10_27:
+      synced: >
+        The rule "never conclude no consumer / no publisher from a SOURCE-ONLY scan" (base-class
+        consumers and DB-row schedulers are invisible to it). Also fixed an older leak: the flows
+        example now uses neutral order names and rule ids.
     sync_note: >
       2026-08-29 FULL sync of SKILL.md. Landed: the doc-durability global content rule, and the
       schema + fingerprint fixes — V-4 now requires `entity, identity, lifecycle` instead of
@@ -42,7 +49,16 @@ skills:
     source_files:
       - _shared/measurement-integrity-protocol.md
       - _shared/check-scope.py
-    last_synced_at: 2026-07-30
+      - _shared/comment-protocol.md
+    last_synced_commit: b76f7fd
+    last_synced_at: 2026-10-27
+    sync_2026_10_27:
+      synced: >
+        measurement-integrity I3 (a negative result needs a control that can say yes; name the surface)
+        + the anti-pattern "an artifact on disk is not proof the job that wrote it succeeded". NEW
+        comment-protocol.md (needed by code-quality-review Comment quality).
+      skipped: >
+        check-scope.py `# BET/# OWNER` header lines (private tool-scorecard convention).
     # Pass 2: check-scope.py (the runnable half — diff/glob/files/reconcile, exit 2 = BLOCKED),
     # copied verbatim and smoke-tested from this copy in all four modes. Its wiring reached only
     # the two consumers this mirror carries (code-quality-review, scan-init verify).
@@ -63,8 +79,32 @@ skills:
       - skills/do-ticket/do-ticket-update.md
       - skills/do-ticket/quality-review.md
       - skills/do-ticket/code-quality-review.md
-    last_synced_commit: 2b2b762
-    last_synced_at: 2026-06-19
+      - skills/do-ticket/phases/*.md
+      - skills/do-ticket/blast-radius.md
+      - skills/do-ticket/legacy-contract.md
+    last_synced_commit: b76f7fd
+    last_synced_at: 2026-10-27
+    sync_2026_10_27:
+      synced: >
+        Router split: SKILL.md is now a router +
+        phases/{start,analyze,design,build,verify,ship,adhoc}.md. Measurement hardening (Ph10 red_count,
+        Ph12 re-run PASS/FAIL/N-A, Ph13/13.5 scope lines, Ph15 evidence on disk, Ph16 telemetry
+        pre-check as a manual check). Legacy gates 8.7 blast-radius / 9.8 legacy-contract / 12.7 recheck
+        + G-T0 + decision modes M1/M2/M3. Sessions S1-S3 + RESUME.md. Squash-merged branch -> <ID>a.
+        Ph18 shared-lib vs consumer CI and conditions-vs-lines. code-quality-review: cold reviewer, 29
+        dimensions in 11 groups, `constrained`, Comment quality. New FMs (TESTDB-STALE-OR-SHARED,
+        SONAR-LOCAL-CI-DIVERGE, SHARED-VERSION-COLLISION, REVIEW-LOOP-EXHAUSTED). Spike types redirect
+        to the spike skill. promote-knowledge marked implemented. This CLOSES both partial_sync backlogs
+        above.
+      skipped: >
+        unattended/background mode; AI-first mode table + owner-level gate rows;
+        interaction-classification; owner familiarity; 15.2 GUI proof per AC; 15.5 spec publishing +
+        Ph21 spec handoff; Phase 24 QC evidence (won't sync: that skill is not mirrored);
+        desktop-app-only CI (auto-fix events, PR binding, usage/cost); private helper scripts (rewritten
+        as manual checks); company-specific CI notes; internal assessment/experiment docs.
+      deferred: >
+        Triage unit (triage-scoring.md + its hooks in Ph2/Ph12/contracts/telemetry/ticket-types).
+        Generic and strong, but written in Vietnamese - needs an English pass first.
     partial_sync:
       at: 2026-07-26
       synced: >
@@ -110,7 +150,20 @@ skills:
       - skills/push-code/failure-modes.yaml
       - skills/push-code/parse-sonar-issues.py
       - skills/push-code/parse-new-coverage.py
-    last_synced_at: 2026-07-30
+      - skills/push-code/test-parse-sonar-issues.py
+      - skills/push-code/sonar-local.ps1
+    last_synced_commit: b76f7fd
+    last_synced_at: 2026-10-27
+    sync_2026_10_27:
+      synced: >
+        gh account check; fetch-first + already-merged check; lines vs statements+conditions; poisoned
+        .sonarqube/out, CS1573/CS1572, CRLF/BOM churn; FE review layers as direct agents; cleanup after
+        green; setup.md "run the scanner from PowerShell"; sonar-local-gate hard rules (a)-(f), 60 s
+        scoping rule, --exclude, gate vs server disagreement; both parsers + new test (8/8 pass);
+        sonar-local.ps1 with REQUIRED -Org/-HostUrl. Defined G-REVIEW-MISSING and FM-STALE-BASE in
+        failure-modes.yaml (step 2b is a manual check).
+      skipped: >
+        the background-run fast path (that skill is not mirrored); the private artifact-check script.
     # 2026-07-30: full delta synced, in two passes. (1) The "Gate summary must carry its scope"
     # section — scope line, Not-examined line, the 4 silent-zero causes, prove-the-gate. Also
     # scrubbed a PRE-EXISTING personal-project name leak on the last line of Scope & portability,
@@ -126,21 +179,40 @@ skills:
   worktree-setup:
     source_files:
       - skills/worktree-setup/SKILL.md
-    last_synced_commit: 1c98c1e
-    last_synced_at: 2026-07-26
+    last_synced_commit: b76f7fd
+    last_synced_at: 2026-10-27
+    sync_2026_10_27:
+      synced: >
+        never branch from HEAD (fetch, verify count = 0); no meta file = not a port claimant;
+        `always_be_only` (+ template key); copy the test project's gitignored config; ASPNETCORE_URLS
+        count check; resource numbers + Postgres max_connections; "isolates source and ports, not any
+        DB"; Phase 0 health as a manual check. Also English-only triggers.
+      skipped: >
+        stack-script install + Phase 6 "preferred: stack script" (script lives in a company repo);
+        private health-check script and machine-wide DB lock; parallel-ticket protocol pointer.
     # Initial full sync. Algorithm was already portable (all repo/service/port data lives in
     # projects.yaml); only 3 tokens needed scrubbing.
 
   enrich-requirements:
     source_files:
       - skills/enrich-requirements/SKILL.md
-    last_synced_commit: f3c32b9
-    last_synced_at: 2026-06-22
+    last_synced_commit: b76f7fd
+    last_synced_at: 2026-10-27
+    sync_2026_10_27:
+      synced: >
+        AC minimality (one rule = one AC; guardrails are not ACs) + plain-language register (word list
+        now inline, no pointer to the company render contract).
 
   promote-observations:
     source_file: skills/promote-observations/SKILL.md
-    last_synced_commit: e77e193
-    last_synced_at: 2026-05-15
+    last_synced_commit: b76f7fd
+    last_synced_at: 2026-10-27
+    sync_2026_10_27:
+      synced: >
+        ticket-tail mode (detect -> filter -> route -> dedupe, MIGRATE for domain-problem-solver, write
+        templates, promoted.md). Shared-file lesson kept as prose. Non-public destinations made generic.
+      skipped: >
+        rule-conflict routing (unchanged decision, see never_mirrored); the shared-store helper script.
 
   domain-problem-solver:
     source_files:
@@ -149,8 +221,34 @@ skills:
       - skills/domain-problem-solver/investigation-findings-schema.md
       - skills/domain-problem-solver/investigation-telemetry-schema.md
       - skills/domain-problem-solver/strategies.yaml
-    last_synced_commit: e77e193
-    last_synced_at: 2026-05-15
+    last_synced_commit: b76f7fd
+    last_synced_at: 2026-10-27
+    sync_2026_10_27:
+      synced: >
+        artifacts in English, chat reply in the user's language.
+
+  ticket-explain:
+    source_files:
+      - skills/ticket-explain/SKILL.md
+      - skills/ticket-explain/share-template.md
+    last_synced_commit: b76f7fd
+    last_synced_at: 2026-10-27
+    sync_2026_10_27:
+      synced: >
+        FIRST sync of SKILL.md + share-template.md. Worked example rewritten as a fictional ticket.
+
+  spike:
+    source_files:
+      - skills/spike/SKILL.md
+      - skills/spike/phase-contracts.yaml
+      - skills/spike/evidence-protocol.md
+      - skills/spike/failure-modes.yaml
+    last_synced_commit: b76f7fd
+    last_synced_at: 2026-10-27
+    sync_2026_10_27:
+      synced: >
+        FIRST sync of all 4 files. Partner names made fictional; the spec-publishing phase removed;
+        routes to non-public skills made generic.
 
 # ---------------------------------------------------------------------------
 # NEVER MIRRORED — decided, do not re-litigate each sync.
@@ -190,3 +288,14 @@ never_mirrored:
       Generic algorithm, but the output path and workflow are wired to a personal review folder,
       and it duplicates well-covered public ground (Playwright scaffolding). Low mirror value.
       Decided 2026-07-26 — revisit if the scaffold is ever made config-driven.
+
+  ticket-pick:
+    reason: >
+      Owner decision 2026-10-27. Output is Vietnamese by design and it scores tickets against one
+      person's own familiarity profile. Same class as the owner-store skills above.
+
+  personal_stores_and_session_modes:
+    skills: [stock-research, doc-manager, assistant, root]
+    reason: >
+      They work on the owner's personal stores or the owner's own app/session setup, or route to
+      skills this mirror does not carry. Decided 2026-09-03 to 2026-10-16.

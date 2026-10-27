@@ -52,6 +52,12 @@ projects:
       url: https://yourorg.atlassian.net # base URL
       # Auth is read from environment / MCP — do not put tokens in this file.
 
+    # ─── Worktree (optional — used by worktree-setup) ─────────────────────
+    # Full key list: skills/worktree-setup/SKILL.md → Project config.
+    worktree:
+      always_be_only: false              # true = never create FE/static worktrees and never ask;
+                                         # set it when you always test through the API, not the GUI
+
     # ─── Database (optional — enables db/ index in scan-init) ─────────────
     db:
       type: postgres                     # postgres | sqlserver | mysql | sqlite

@@ -41,6 +41,24 @@ curl -s -u "$SONAR_TOKEN:" https://sonarqube.acme.com/api/authentication/validat
 ```
 All green → `/push-code` runs the full local gate.
 
+### 5. Always invoke `sonarscanner` from **PowerShell** — never Git Bash
+
+Git Bash (MSYS) rewrites any `/k:`-style argument into a Windows path before the program sees it. The
+scanner then rejects every argument **and prints its full argv back**, which includes the expanded
+`sonar.token`. The secret reaches the transcript even though nobody wrote it literally — the usual
+"never inline a password in a command" habit does not stop this, because the *tool* does the printing.
+
+```
+# WRONG — Git Bash: MSYS mangles /k:, /o:, /d: → scanner echoes argv incl. the token
+# RIGHT — PowerShell:
+$tok = $env:SONAR_TOKEN
+dotnet sonarscanner begin /k:"<key>" /o:"<org>" /d:sonar.token="$tok" /d:sonar.host.url="<host>" ...
+```
+
+Read the token from the env var into a local variable; never paste the value. **If a leak does happen,
+tell the user to rotate the token immediately** — treat any tool that can echo argv on error as a leak
+surface. `sonar-local.ps1` in this skill dir runs `begin` this way and masks the token in its error output.
+
 ## §Blocked — why there is no server upload / Web-API read-back / MCP on a sandboxed host
 
 > This section documents an environment limitation, not a design preference. On an unrestricted machine the upload path works and you can add the duplication gate; on a **managed/sandboxed workstation** (endpoint-management agent, restricted loopback) it does not, and this is the dead end to stop re-discovering.

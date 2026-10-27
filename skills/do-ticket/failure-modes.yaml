@@ -87,6 +87,23 @@ modes:
         action: "Offer (a) rebase anyway, (b) create <TICKET_ID>-v2 from main and cherry-pick selected commits."
         gate: G5
 
+  - id: FM-SHARED-VERSION-COLLISION
+    # Recurring leak on multi-repo stacks. Applies to any shared library whose <Version> the CI uses
+    # to publish a package (e.g. acme-shared / Acme.Shared.csproj). Two branches that both bump to
+    # master+1 merge with NO git conflict (identical change auto-resolves) and the second publish
+    # silently collides with the first.
+    detect:
+      - "the shared-lib repo is in the ticket changeset"
+      - "branch <Version> in the shared-lib project file == origin/master <Version>, or lower"
+    severity: must-fix
+    # Checked at TWO points: rebase-check (Phase 4) and commit (Phase 16), since a clean rebase can
+    # SILENTLY duplicate master's version.
+    pivots:
+      - id: rebump-version
+        action: "Read the branch <Version> vs `git show origin/master:<path>/<SharedLib>.csproj` <Version>. If equal (or branch <= master) → bump branch to master_version+1. Commit the shared lib FIRST, before the other repos. A clean 'Successfully rebased' does NOT guarantee a unique version — always re-check after a rebase."
+        gate: G8
+    escalate_to_user: G8
+
   - id: FM-PLAN-CHANGESET-DRIFT
     detect:
       - "git diff has files NOT in plan.md"
@@ -136,11 +153,20 @@ modes:
     detect:
       - "test passed without exercising the SUT"
       - "test asserts true on default empty result"
+      # A multi-step LIVE harness is the same failure wearing a different coat: step 2 answers 4xx,
+      # steps 3-4 run anyway, and the final assert reads a state the chain never reached. The verdict
+      # line says PASS and every step printed, so nothing looks wrong. Seen twice in one round
+      # (PROJ-11332, 2026-08-21): the "put on hold" step answered 400 on a bad reason text, the record never
+      # entered ON_HOLD, so "released from hold" measured a record that was never held.
+      - "multi-step live harness printed PASS while an earlier step returned >=400"
     severity: must-fix
     pivots:
       - id: rewrite-test
         action: "Surface the test. Offer: rewrite to exercise SUT, mark as pre-existing-flaky, or delete."
         gate: G1
+      - id: assert-every-step
+        action: "Live harness: every step asserts its own HTTP status and RAISES on >=400, so a refused step stops the chain instead of feeding the next one. Print 'MEASUREMENT INVALID', never PASS/FAIL."
+        gate: none
 
   # -------------------------------------------------------------------------------------------
   # The gate that measured NOTHING and reported success. Distinct from FM-FALSE-GREEN-TEST (a test
@@ -269,6 +295,22 @@ modes:
         action: "Ask user: 'Is the failure (a) code issue (tests actually fail) or (b) environment issue (CI missing setup)?' Code → return to implement. Env → document as known risk, proceed."
         gate: G5
 
+  - id: FM-SONAR-LOCAL-CI-DIVERGE
+    # Seen on 3 tickets: the push-code local gate was green, then the PR's CI Sonar quality gate
+    # failed. The local gate counts LINES on the diff; Sonar counts statements AND conditions (every
+    # ?., ??, &&, ||, ternary) and re-dates whole-method/block issues.
+    detect:
+      - "CI SonarQube quality gate failed on a PR whose push-code local gate passed"
+      - "Sonar PR comment: 'Coverage on New Code (is less than 80%)' or new issues the local Issues.json did not show on added lines"
+    severity: must-fix
+    pivots:
+      - id: ask-the-server
+        action: "Do NOT guess. Ask Sonar for the PR (always &pullRequest=<n>): api/measures/component_tree (new_lines_to_cover, new_uncovered_lines, new_conditions_to_cover, new_uncovered_conditions per file), then api/sources/lines for that file (lineHits, conditions, coveredConditions, isNew). Fix exactly what it names: missing branch tests for conditions, or the issue the server re-dated. Re-run the push-code gate, push a NEW commit."
+        gate: none
+      - id: harden-local-gate
+        action: "If the miss is a rule/shape the local parser cannot see, log it against push-code (its issue and new-coverage parsing) so the local gate catches it next time."
+        gate: none
+
   # ============================================================
   # CONTEXT / CONTRACT
   # ============================================================
@@ -285,6 +327,10 @@ modes:
   - id: FM-FINGERPRINT-STALE
     detect:
       - "ticket-context.fingerprints.<file>_sha differs from current file SHA"
+      # Manual check: recompute with `git hash-object <file>` (or any stable SHA of the file bytes) and
+      # compare with the recorded value. A deliberate edit whose fingerprint was refreshed with a
+      # recorded reason is NOT drift.
+      - "recomputed SHA of a fingerprinted artefact != the value recorded in ticket-context, with no refresh reason logged"
     severity: warn
     pivots:
       - id: regen-downstream
@@ -328,6 +374,50 @@ modes:
     pivots:
       - id: scope-decision
         action: "Estimate scope of change. Offer: include in this PR (extends scope), defer to follow-up ticket, or reject reviewer suggestion with rationale."
+        gate: G6
+
+  # The diff-scoped review (code-quality-review.md) allows at most 2 review iterations per
+  # checkpoint. A third round is a contract violation, not a longer conversation: the fix loop is
+  # no longer converging, and another automatic round only burns time.
+  - id: FM-REVIEW-LOOP-EXHAUSTED
+    detect:
+      - "review loop reached its max rounds (2 per checkpoint) with findings still open"
+      - "the same must-fix finding re-opens after a fix round"
+    severity: blocker
+    pivots:
+      - id: stop-and-report
+        action: "STOP the loop. Do not start another review round. Report the open findings to the user (each with file:line and the fix already tried), and ask: fix by hand / accept as a known gap / re-plan."
+        gate: G1
+    escalate_to_user: G1
+
+  # A red test run that is not a code defect, because the shared/pooled test database was stale,
+  # warming up, or in use by another runner. It once cost a whole session of "master is broken,
+  # I will fix their file" before the DB was suspected. The closest other mode is
+  # FM-SERVICES-NOT-RUNNING, which is about the live stack, not the test harness.
+  - id: FM-TESTDB-STALE-OR-SHARED
+    detect:
+      - "the SET of failing tests changes between two runs of the SAME build"
+      - "FK violation on insert (23503) | 'not found' | DbUpdateConcurrencyException in a test that seeds its own rows"
+      - "a test class passes alone and fails in a suite, or the reverse"
+      - "ORDER BY assertions flip with identical seeded data"
+    severity: blocker
+    pivots:
+      - id: prove-it-is-the-harness
+        action: >
+          Do NOT read the failures as code yet. Run the SAME filter twice: an unstable failure set is
+          the harness, not the diff. Then check for a second test runner process (e.g. another
+          vstest/testhost) - one pooled DB plus two runners means each wipes the other mid-test.
+      - id: reset-and-remeasure
+        action: >
+          DROP the pooled test DB (EnsureCreated no-ops on an existing one, so it never catches up with
+          the model), run ONCE to warm it - that first run is unreliable because the schema is created
+          while tests execute - then measure on the SECOND run. Only a stable set across two runs is
+          evidence.
+      - id: attribute-before-blaming-code
+        action: >
+          Before saying a commit that is not yours is broken, re-run the failing class on a FRESH DB at
+          that exact commit. In the case that produced this entry, 4 list tests failed on plain master
+          locally and passed 6/6 on a fresh DB, and CI was green all along.
         gate: G6
 
 # Auto-learn protocol:

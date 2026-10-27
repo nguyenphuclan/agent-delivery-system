@@ -64,6 +64,8 @@ Full setup in [`SETUP.md`](SETUP.md). Agent entry rules in [`CLAUDE.md`](CLAUDE.
 | `skills/domain-problem-solver/`   | Investigation without a ticket |
 | `skills/push-code/`               | Pre-push quality gate — the only sanctioned push path (do-ticket phase 17) |
 | `skills/worktree-setup/`          | Parallel git worktrees for a multi-repo service stack, port-offset per worktree |
+| `skills/spike/`                   | Timeboxed spike ticket — answer its own questions with re-runnable evidence, draft follow-ups, write no code |
+| `skills/ticket-explain/`          | Plain-English share-doc that explains one ticket to teammates who will not build it |
 | `_shared/`                        | 14 reusable protocol files (clarification, hypothesis, mapping, etc.) |
 | `_config/projects.yaml.template`  | Project config schema |
 | `docs/`                           | Architecture + sample outputs |

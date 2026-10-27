@@ -27,7 +27,7 @@ there is nothing to fix, only something to notice.
 ran — buys you two things to own and moves the same question up a level. So this protocol does not try
 to close it. It makes the empty case *look different from the real one at a glance*.
 
-## The two invariants
+## The three invariants
 
 ### I1 — A verdict never ships without its scope
 
@@ -43,6 +43,40 @@ A verdict on its own can come from a check that did nothing. **A number can't.**
 progression exactly like a failure, but it must never be reported as evidence about the subject. Fix
 the measurement — filter, base ref, repo dir, credentials, missing artefact — and re-run. Only once
 the gate reports a **non-zero scope** may its verdict be believed.
+
+### I3 — A NEGATIVE result is not evidence until a control proves the instrument can say yes
+
+I1 and I2 both assume the instrument is pointed at the subject. This one does not.
+
+**"No rows", "not found", "unchanged", "0 issues" and "clean" are the cheapest sentences in this
+system to produce by accident.** Every one of them is also what a correct run looks like when the
+measurement landed on the wrong thing — a stale checkout, a different database, the service behind
+the BFF rather than the BFF, a diff against the committed tree rather than the working tree. The
+number is real. The subject is not.
+
+So before reporting any absence, run a **control**: a second measurement on the same instrument, in
+the same run, whose expected answer is different. If the control also comes back empty, the
+instrument is what is broken.
+
+| Absence reported | The control that earns it |
+|---|---|
+| "record not found" | ask for a record you know exists — a *different* error proves the tool separates "absent" from "refused" |
+| "the file/symbol does not exist" | grep for it in the dependency's remote ref; found there means your checkout is stale, not that it is missing |
+| "the screen shows X" | call the URL the front end actually calls, not the service behind it |
+| "my edit changed nothing" | measure the working tree, not `<base>...HEAD` — an uncommitted edit is invisible to the committed diff |
+| "this suite/gate passes" | it must have gone red once, on purpose, on this exact wiring |
+
+**Measured, not asserted:** across 13 ticket telemetry files in one project, 11 record at least one
+finding of this shape, under many different names — *"measured the wrong binary"*, *"wrong
+environment"*, *"stale process"*, *"local master stale vs origin/master"*, *"cost one wrong conclusion
+before the service log was read"*. On 2026-09-23 (PROJ-11501) it happened **four times in one
+ticket**, and each time the published number was correct. A control caught the fifth before it
+shipped, which is the only reason that one is not on the list.
+
+**Name the surface in the report, next to the scope.** I1 makes you state how much you measured;
+this makes you state *what you measured it on*. `0 issues on 483 added lines` is not the same claim
+as `0 issues on 483 added lines, read from orders-api:5001` — and only the second one can be checked
+by a reader who knows the front end talks to the BFF on :5000.
 
 ## The denominator rule
 
@@ -139,6 +173,14 @@ A skill may tighten this. **No skill may report a bare verdict.**
 - ❌ Green-with-exceptions without an explicit, logged user override.
 - ❌ Presenting the agent's own summary sentence as the measurement. Show the raw tool output —
   runner summary, file listing, row count — above the interpretation.
+- ❌ **Reading an artifact as proof that the job which wrote it succeeded.** The file existing,
+  being large, and parsing cleanly says nothing about the run's exit code. `dotnet-coverage` writes
+  `coverage.xml` even when the `dotnet test` inside it fails; a scanner writes `Issues.json` for a
+  build that died. Capture the runner's **exit code and its own summary line**, and do not let
+  output buffering swallow them — a PowerShell `Select-Object -Last N` wrapper left a 0-byte log
+  next to an 84 MB artifact, and the gate was reported green off a job that had exited 4
+  (PROJ-11416, 2026-09-15). The number happened to be right, which is the dangerous part: a
+  correct claim on absent evidence teaches you to skip the evidence next time.
 
 ## Telemetry
 

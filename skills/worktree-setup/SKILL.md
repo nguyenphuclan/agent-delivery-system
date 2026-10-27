@@ -37,9 +37,10 @@ This skill is **company-agnostic**. It encodes the algorithm only:
 
 | Mode | Triggered by | Action |
 |---|---|---|
+| `health` | resume a ticket in an existing worktree, after any rebase, "check worktree" | Phase 0: manual freshness / port / stale-process check |
 | `setup` (default) | `do-ticket --worktree`, "setup worktree" | Phase 1–5: pick offset → create worktrees (incl. static FE) → copy/rewrite Dev configs → build-verify → generate `.vscode/launch.json` |
-| `port-default` (new) | "chuyển port về default", "switch to main ports" | Phase 5b: rewrite all `.Development.json` + `.vscode/launch.json` URLs from `localhost:<offset_port>` → `localhost:<main_port>`. Use when user wants FE to talk to this worktree's BE instead of main BE. Pre-condition: main BE must be stopped (default ports free) AND no other worktree is currently in `port-default`. |
-| `port-offset` (new) | "đổi về port worktree", "switch back to offset" | Phase 5b reverse: rewrite from `localhost:<main_port>` → `localhost:<offset_port>`. Restores parallel-safe coexistence with main. |
+| `port-default` (new) | "switch to main ports", "use default ports" | Phase 5b: rewrite all `.Development.json` + `.vscode/launch.json` URLs from `localhost:<offset_port>` → `localhost:<main_port>`. Use when user wants FE to talk to this worktree's BE instead of main BE. Pre-condition: main BE must be stopped (default ports free) AND no other worktree is currently in `port-default`. |
+| `port-offset` (new) | "switch back to offset", "use worktree ports" | Phase 5b reverse: rewrite from `localhost:<main_port>` → `localhost:<offset_port>`. Restores parallel-safe coexistence with main. |
 | `start` (optional) | "start worktree", agent-driven test | Phase 6: spawn services in dep order via background bash + health probe. Alternative: user opens `${WT_ROOT}` in VS Code, clicks **Run All** |
 | `stop` | "stop worktree" | Phase 7: kill background bash sessions |
 | `cleanup` | `do-ticket` Step 15, "remove worktree" | Phase 8: stop if running → remove worktrees |
@@ -50,11 +51,11 @@ This skill is **company-agnostic**. It encodes the algorithm only:
 setup → port_mode=offset (BE on main_port+offset, parallel-safe with main)
    ↓
 [user verifies BE via API tests + bearer token through gateway]
-   ↓ "chuyển port về default" + user stops main
+   ↓ "switch to main ports" + user stops main
 port-default → port_mode=default (BE on main_port, FE-compatible)
    ↓
 [user verifies FE workflow against worktree BE]
-   ↓ "đổi về port worktree" + user starts main again
+   ↓ "switch back to offset" + user starts main again
 port-offset → port_mode=offset (back to parallel-safe)
 ```
 
@@ -90,6 +91,8 @@ Reads from `_config/projects.yaml`:
 | `${project.repos.shared_lib}` | shared-lib repo alias (mandatory worktree) |
 | `${project.paths.repos_root}` | parent dir of source repos |
 | `${project.paths.worktree_base}` | parent dir for worktrees |
+| `${project.base_branch}` | branch every new worktree starts from (template key: `branch.main_branch`) |
+| `${project.worktree.always_be_only}` | optional. `true` = never create FE / static worktrees and never ask (Phase 2a) |
 | `${project.worktree.services}` | map of N services. Each entry: `repo_alias`, `project_path`, `main_port`, `start_order`, optional `dll_relative` (defaults to `${project_path}/bin/Debug/net8.0/<csproj-stem>.dll`) |
 | `${project.worktree.port_offsets}` | candidate offsets for auto-allocation (e.g. `[100, 200, …, 900]`) |
 | `${project.worktree.health_check.gateway_service}` | name of service that fronts the stack and is hit by health probe (typically the API gateway) |
@@ -101,11 +104,50 @@ If a required field is blank or `(fill in)` → stop and ask user to fill `_conf
 
 ---
 
+## Phase 0 — Health check (run FIRST on any existing worktree)
+
+Before doing anything in a worktree that already exists — resuming a ticket, starting a session,
+and **always after a rebase** — check these by hand. Any "fail" blocks work until fixed.
+
+| Check | How | Pass / fail |
+|---|---|---|
+| Freshness, **every** repo | `git -C <repo> fetch origin <base> --quiet` then `git -C <repo> rev-list --count HEAD..origin/<base>` | `0` = pass. Non-zero = that repo is behind the base branch |
+| Ports agree | compare `port_offset` in `.worktree-meta.yaml` with the ports in each `appsettings.Development*.json` | every port = `main_port + offset` (or `main_port` in `default` mode) |
+| No stale services | list `dotnet` processes whose command line contains this worktree's folder | none running before a build. A live one holds the shared lib dll and breaks the next build (`MSB3021`) |
+
+**The freshness check is the one that earns its keep.** A base-branch move requires refreshing
+**EVERY repo in the worktree**, not just the one being edited. A cross-repo ticket breaks the build
+from the side you did not touch: on PROJ-7251, rebasing the service left the shared lib 3 commits
+behind, and the build failed with `CS0117 … does not contain '<Member>'` — a missing-member error
+that reads exactly like your own bug. Measured after that ticket: two *other* repos in the same
+worktree were still 7 and 1 commits behind, silently, because nothing had forced them to break.
+
+Refresh a stale repo only when it has no local changes:
+```bash
+git -C <repo> status --porcelain      # must be empty
+git -C <repo> fetch origin <base> --quiet && git -C <repo> checkout --detach origin/<base>
+```
+A repo that has local changes or its own ticket branch: rebase it instead, or ask the user.
+
+---
+
 ## Phase 1 — Pick port offset
 
 Goal: each parallel worktree gets a unique offset so N services × M worktrees never clash.
 
 1. List existing meta files: `${project.paths.worktree_base}/*/.worktree-meta.yaml`. Read `port_offset` from each → set of taken offsets.
+
+   **A worktree with no meta file is not automatically a claimant.** Most such folders are
+   code-only checkouts (a few repos, or a full set whose Phase 3 never ran) and hold no
+   `appsettings.Development.json`. Without dev configs a worktree cannot run the stack at all, so it
+   can never occupy a port.
+
+   So when a meta file is missing, decide by config presence rather than assuming the worst:
+   ```bash
+   find "<worktree>" -iname "appsettings.[Dd]evelopment*.json" -not -path "*/bin/*" | head -1
+   ```
+   Nothing found → not a port claimant, ignore it. Found → infer its offset from the ports inside
+   that file and treat the offset as taken.
 2. For each candidate offset in `${project.worktree.port_offsets}`:
    - Skip if already taken by another worktree.
    - Compute effective ports: `effective = service.main_port + offset` for every service.
@@ -123,20 +165,64 @@ For each service, `effective_port = service.main_port + offset`. Used everywhere
 
 ### 2a. Confirm FE / static-worktree scope (mandatory gate)
 
-Before creating any FE / static worktree, **always ask the user** — never clone FE by default. Most BE-only tickets don't need a FE worktree, and a needless FE worktree drags in the `node_modules` junction (and its cleanup hazard, see Phase 9).
+**Check `${project.worktree.always_be_only}` first.** When it is `true`, set
+`static_set = []` and move on — **do not ask**. The user has given a standing
+answer, and re-asking every ticket is noise.
 
-If `${project.worktree.static_worktrees}` is non-empty, ask via AskUserQuestion:
+Only when that flag is absent or `false`, and `${project.worktree.static_worktrees}`
+is non-empty, ask via AskUserQuestion — never clone FE by default. Most BE-only
+tickets don't need a FE worktree, and a needless one drags in the `node_modules`
+junction (and its cleanup hazard, see Phase 9):
 > *"This ticket touches FE? Should I also create worktree(s) for: `<list static_worktrees>`? (BE services + shared-lib are always created regardless.)"*
 > Options: **No — BE only (recommended)** / **Yes — clone FE too**
 
 - **No / no answer / BE-only** → set `static_set = []`. Skip all FE worktrees AND the `node_modules` junction entirely. This is the default.
 - **Yes** → set `static_set = ${project.worktree.static_worktrees}`.
 
+A FE worktree can still be added later on request — nothing here is one-way.
+
 Record the decision in `.worktree-meta.yaml` (`static_worktrees_created: [...]`) so Phase 9 knows exactly what (if anything) to clean up.
 
-Branch resolution per repo:
-- If branch `${TICKET_ID}` exists in that repo → use it
-- Else → `HEAD`
+### 2b. Branch resolution per repo — never `HEAD`
+
+```bash
+git -C "${project.paths.repos_root}/<repo>" fetch origin ${project.base_branch} --quiet
+if git -C "${project.paths.repos_root}/<repo>" show-ref --verify --quiet "refs/heads/${TICKET_ID}"; then
+  BASE="${TICKET_ID}"                              # this ticket's branch already exists -- resume it
+else
+  BASE="--detach origin/${project.base_branch}"
+fi
+```
+
+- Branch `${TICKET_ID}` exists in that repo → use it.
+- Otherwise → **detached at `origin/${project.base_branch}`**, after a fetch.
+
+Detached is correct and deliberate — branches are created lazily, only in repos
+that actually receive edits (keeps empty branches out of git history). What
+must never happen is detaching at **`HEAD`**.
+
+> **Why `HEAD` is wrong (caught 2026-08-26, PROJ-7251).** The main checkouts
+> are usually sitting on *another* ticket's branch. That day the service repos
+> were spread over three other tickets' branches, each 1–3 commits ahead of
+> `origin/<base>`. `worktree add <path> HEAD` silently based the new ticket on
+> that unrelated work. Nothing errors; the build is green; the ticket is simply
+> built on top of another ticket's commits, and it surfaces later as a dirty PR
+> diff or a "why is this change already here" confusion.
+
+**Fetch first.** A local `origin/<base>` can be days stale mid-sprint, and the
+whole point is a clean base.
+
+**Verify after creating** (right after 2c), do not assume — one line, and it is the only check
+that catches this class of error:
+
+```bash
+git -C "${WT_ROOT}/<repo>" rev-list --count "origin/${project.base_branch}..HEAD"
+```
+Must be `0` for every repo where the ticket branch did not already exist.
+Non-zero means the worktree is carrying commits that are not on the base branch —
+remove it and recreate it from `origin/${project.base_branch}`.
+
+### 2c. Create the worktrees
 
 For each repo to worktree — union of:
 - All `${project.worktree.services}` (BE service repos)
@@ -146,7 +232,7 @@ For each repo to worktree — union of:
 ```bash
 REPO_NAME="${project.repos.<repo_alias>}"
 git -C "${project.paths.repos_root}/${REPO_NAME}" \
-    worktree add "${WT_ROOT}/${REPO_NAME}" <branch-or-HEAD>
+    worktree add "${WT_ROOT}/${REPO_NAME}" ${BASE}    # from 2b -- never HEAD
 ```
 
 **Atomicity**: any `git worktree add` fails → `git worktree remove --force` the successful ones, delete `${WT_ROOT}`. Never leave a half-set.
@@ -199,6 +285,33 @@ Brute-force string replace is intentional: robust to schema changes, catches eve
 
 DB connection strings are NOT rewritten — DB is shared between main and worktree per project policy.
 
+### 3c. Copy the TEST project's gitignored config too
+
+The service `.Development.json` files are not the only gitignored config. A test project can carry its
+own — e.g. `src/<test-project>/configuration.json`, gitignored, present only in main. Without it the
+test project fails to BUILD, not just to run:
+
+```
+error MSB3030: Could not copy the file "…/configuration.json" because it was not found.
+```
+
+That error names a copy task, not a missing test setting, so it reads like a broken worktree rather
+than a missing file. Copy it the same way as the service configs:
+
+```bash
+for f in configuration.json; do
+  SRC="${project.paths.repos_root}/<repo>/src/<test-project>/$f"
+  [ -f "$SRC" ] && cp "$SRC" "${WT_ROOT}/<repo>/src/<test-project>/$f"
+done
+```
+
+Prefer main's copy over the repo's `configuration.example.json`: main holds the working local values,
+the example holds placeholders. Fall back to the example (what CI does) only when main has none.
+
+**Why this is easy to miss:** Phase 4 builds each service's main `.csproj`, never the test project, so
+setup passes clean and the gap only shows later when someone runs the tests. If a worktree is meant
+for test work, build the test project in Phase 4 as well.
+
 ---
 
 ## Phase 4 — Build verify (order matters)
@@ -229,7 +342,8 @@ done
 - `error NU1301: Failed to retrieve information about <pkg> from <feed>` — service depends on private package on a feed (e.g. GitHub Packages) requiring auth.
   Surface to user: *"Service `<X>` needs PAT for `<feed>`. Required scopes: `read:packages` + `repo` (for private). If org uses SAML SSO, authorize PAT for the org. Set credentials via `dotnet nuget add source <feed> --name <name> --username <user> --password <PAT> --store-password-in-clear-text` or edit `%APPDATA%\NuGet\NuGet.Config`. Then retry."*
 
-- `error CS… in <repo>/src/<X>.Test/…` or missing `configuration.json` in test project — only surfaces if you build the .sln. Build the main `.csproj` instead.
+- `error CS… in <repo>/src/<X>.Test/…` — only surfaces if you build the .sln. Build the main `.csproj` instead.
+- `error MSB3030 … configuration.json … not found` in a test project — the test config was not copied. See 3c.
 
 - `error: could not find <shared>.csproj` — mirrored layout is wrong. Verify `${WT_ROOT}/<shared_repo>` exists.
 
@@ -280,6 +394,11 @@ Plus a compound at the bottom:
 `${workspaceFolder}` resolves to whatever folder VS Code is opened on. Since user opens `${WT_ROOT}`, paths resolve correctly.
 
 **Why `ASPNETCORE_URLS` is mandatory**: VS Code `coreclr` debug type launches the `.dll` directly — it does NOT load `Properties/launchSettings.json`'s `applicationUrl`. Without the env var, Kestrel binds default 5000/5001 (clash). Always set it.
+
+**Copying main's `launch.json` is not enough.** Main's configs may carry only `ASPNETCORE_ENVIRONMENT`
+(main relies on default ports), so a copied file with ports rewritten still starts every worktree
+service on the MAIN port. After writing the file, check: `ASPNETCORE_URLS` count == service count,
+and no main port is left in it (PROJ-10837: 0 of 8 had it until fixed).
 
 ### Generate `${WT_ROOT}/.vscode/tasks.json`
 
@@ -393,7 +512,7 @@ worktree_ports:  { … }
 
 ## Phase 7 — Agent-driven start (alternative to VS Code Run All)
 
-Use only when user explicitly says "start worktree" / "start để test" and doesn't want VS Code.
+Use only when user explicitly says "start worktree" / "start for testing" and doesn't want VS Code.
 
 Group services by `start_order` ascending. For each group:
 
@@ -502,7 +621,8 @@ Uncommitted changes in a worktree → `git worktree remove` fails. Surface to us
 
 - Never modify files in MAIN paths (`${repos_root}/…`). Only inside `${WT_ROOT}/…`.
 - Committed `appsettings.json` is never touched — only `.Development*.json`.
-- **FE / static worktrees are opt-in only.** Always ask the user first (Phase 2a); default to BE-only. Never clone FE — and therefore never create a `node_modules` junction — without explicit confirmation.
+- **FE / static worktrees are opt-in only.** Ask the user first (Phase 2a) unless `always_be_only: true` answers it; default to BE-only.
+- **Never base a worktree on `HEAD`.** Fetch, then detach at `origin/${project.base_branch}` (or resume the ticket's own branch), and verify `rev-list --count origin/<base>..HEAD` = 0 (Phase 2b). Never clone FE — and therefore never create a `node_modules` junction — without explicit confirmation.
 - **Never recursively delete a junction/symlink** (`Remove-Item -Recurse`, `rm -rf`). A `node_modules` junction points at the MAIN repo's real modules; recursing through it wipes the source. Always unlink link-only via `cmd /c rmdir <junction>` (no `/s`), then verify the target survived (Phase 9a). If unsure it's safe, leave the junction and tell the user.
 - Shared-lib worktree is ALWAYS created. All N service worktrees ALWAYS created. No "minimal" mode.
 - Mirrored layout `${WT_ROOT}/<repo-name>/` ↔ `${repos_root}/<repo-name>/` is mandatory.
@@ -515,8 +635,8 @@ Uncommitted changes in a worktree → `git worktree remove` fails. Surface to us
 ## Known limitations
 
 - **URL rewrite is brute-force string replace.** Misses non-`localhost:<port>` patterns (Docker hostnames, env-var-driven URLs, service discovery). Symptom: service can't reach neighbor. Fix per-service: locate config key, add explicit override mechanism in `projects.yaml`.
-- **DB schema isolation** not implemented. Worktree services share dev DB with main. Risk if both write to same records.
+- **DB schema isolation** not implemented. Worktree services share dev DB with main. Risk if both write to same records. The test DB is shared too: if your tests clean tables when they start, two concurrent `dotnet test` runs (main + worktree, or two worktrees) corrupt each other — run them one at a time. **A worktree isolates the source and the ports. It does not isolate any database.**
 - **Migration on startup** by any service runs against shared DB. Add `disable_migrations` env override per service if it becomes a problem.
 - **Build time**: N services × ~30–60s. First setup ~5 min cold; warm ~30s.
-- **Resource use**: N dotnet processes ≈ 0.5–1 GB each. Don't run >2 worktrees in parallel on a 16 GB machine.
+- **Resource use**: measured 2026-08-26 on an 8-service .NET stack, the earlier "0.5–1 GB each" guess was ~2.5x too high. 8 idle services = 2832 MB total (~354 MB avg); the largest API service alone was 859 MB / 132 threads, the rest 172–416 MB. **RAM is rarely the ceiling — the shared local Postgres is.** Its default `max_connections = 100`, while those 8 services were configured to allow ~850 pooled connections together (one set `Maximum Pool Size=150`, the others took Npgsql's default of 100). Idle use hides this at ~13 connections per stack; under load, two stacks plus a test run can exhaust it. Before running stacks in parallel, lower `Maximum Pool Size` per service or raise `max_connections`.
 - **Private NuGet feeds** require PAT. Skill surfaces NU1301 errors with guidance but cannot configure auth on user's behalf.

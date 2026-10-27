@@ -11,8 +11,9 @@ A new line counts as:
   - covered     if any touching range is covered="yes" or "partial"
 new-code coverage = covered_new / executable_new.
 
-Usage:  python parse-new-coverage.py <repo_dir> <base_ref> <coverage.xml> [min_pct] [test_marker]
-        test_marker: path substring marking test projects to exclude (default ".MSTest")
+Usage:  python parse-new-coverage.py <repo_dir> <base_ref> <coverage.xml> [min_pct] [test_marker] [--exclude=<glob>,<glob>]
+        --exclude: the CI workflow's sonar.exclusions + sonar.coverage.exclusions (Sonar-style globs)
+        test_marker: path substring(s) marking test projects to exclude, "|"-separated (default ".mstest|.test")
 
 Exit codes (see _shared/measurement-integrity-protocol.md):
   0  clean  — coverage measured over a non-zero denominator and met the gate
@@ -36,11 +37,37 @@ def blocked(reason, fix):
     print("  This is a verdict on the MEASUREMENT, not on the code. Do not push on it.")
     sys.exit(BLOCKED)
 
+import fnmatch
+# --exclude=<glob>[,<glob>...]: the CI's sonar.exclusions + sonar.coverage.exclusions, so files CI does
+# not measure (EF migrations, Startup.cs, generated code) are not in the denominator either. A generated
+# migration Designer once read 0/5191 here and turned a 14/14 change red (PROJ-11570, 2026-10-06).
+EXCLUDES = []
+for _a in list(sys.argv[1:]):
+    if _a.startswith("--exclude="):
+        EXCLUDES += [g.strip() for g in _a.split("=", 1)[1].split(",") if g.strip()]
+        sys.argv.remove(_a)
+
+def excluded(path):
+    p = path.replace("\\", "/").lower()
+    for g in EXCLUDES:
+        g = g.lower()
+        for cand in (g, g.replace("**/", "*/"), g.replace("**/", "")):
+            if fnmatch.fnmatch(p, cand):
+                return True
+    return False
+
 repo = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else ".")
 base = sys.argv[2] if len(sys.argv) > 2 else "origin/master"
 cov  = sys.argv[3] if len(sys.argv) > 3 else os.path.join(repo, "coverage.xml")
 minp = float(sys.argv[4]) if len(sys.argv) > 4 else 80.0
-testmark = (sys.argv[5] if len(sys.argv) > 5 else ".mstest").lower()
+# Default was ".mstest", which is right for MSTest repos (e.g. Acme.Api.MSTest) and WRONG
+# for every xunit repo, where the test project is named "*.Test". The wrong default silently
+# counts the new TEST file as production code: on an xunit service repo it reported
+# 98/98 = 100.0% where the real production figure was 5/5 (2026-08-27). Both were 100% so the
+# verdict held, but a poorly-covered test file would move the number either way.
+# Now: explicit 5th arg wins; otherwise match either convention.
+testmark = (sys.argv[5] if len(sys.argv) > 5 else ".mstest|.test").lower()
+testmarks = [m for m in testmark.split("|") if m]
 
 if not os.path.isfile(cov):
     blocked(f"coverage report not found at {cov}",
@@ -60,12 +87,15 @@ if not diff.strip():
     blocked(f"git diff {base}...HEAD produced an empty diff",
             "wrong base ref, wrong repo dir, or the branch is already merged")
 added = collections.defaultdict(set)
+skipped_by_exclude = set()
 cur = None
 for ln in diff.splitlines():
     m = re.match(r"^\+\+\+ b/(.+)$", ln)
     if m:
         p = m.group(1)
-        cur = p if (p.endswith(".cs") and testmark not in p.lower()) else None
+        if p.endswith(".cs") and excluded(p):
+            skipped_by_exclude.add(p)
+        cur = p if (p.endswith(".cs") and not any(m in p.lower() for m in testmarks) and not excluded(p)) else None
         continue
     m = re.match(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", ln)
     if m and cur:
@@ -124,7 +154,9 @@ print(f"SCOPE  {len(added)} changed production .cs file(s), "
       f"{sum(len(v) for v in added.values())} added line(s) vs {base}  ·  "
       f"{len(targets)} file(s) found in {os.path.basename(cov)}")
 print(f"NOT EXAMINED  test projects (marker '{testmark}')  ·  non-.cs files  ·  "
-      f"non-executable added lines (comments, braces, usings)\n")
+      f"non-executable added lines (comments, braces, usings)"
+      + (f"  ·  {len(skipped_by_exclude)} file(s) excluded by --exclude (CI does not measure them)" if skipped_by_exclude else "")
+      + "\n")
 print("New-code coverage (from coverage.xml ∩ diff):\n")
 for rp in sorted(added):
     a = added[rp]; ex = execu[rp] & a; cv = covered[rp] & a

@@ -1,0 +1,90 @@
+# failure-modes.yaml — SPIKE-FM-XX registry.
+#
+# Each entry is a way a spike quietly produces a wrong or empty answer, the signal that
+# gives it away, and the pivot to run instead of escalating.
+# Read by the `answer` and `crosscheck` phases.
+
+failure_modes:
+
+  - id: SPIKE-FM-01
+    name: source unreachable
+    signal: "the connection, repo, endpoint or log the method needs is not available"
+    wrong_move: "answer from a nearby source and note the caveat at the end"
+    pivot: >
+      Set the row to `blocked`. Record the exact access needed and who grants it. Keep going
+      with the other rows — a blocked row must never stall the whole ledger. Raise the access
+      need to the user NOW, so the wait runs alongside the rest of the spike.
+
+  - id: SPIKE-FM-02
+    name: query returns zero rows
+    signal: "a count comes back 0 and it reads like a clean finding"
+    wrong_move: "report 0 as the answer"
+    pivot: >
+      Run the negative control (evidence-protocol.md §3) before writing anything. Suspect, in
+      order: key casing, timezone, a join that drops NULLs, a wrong table, an environment with
+      no such data. A 0 that survives a passing control IS a finding; a 0 with no control is
+      an untested query.
+    owner: _shared/measurement-integrity-protocol.md
+
+  - id: SPIKE-FM-03
+    name: every bucket looks the same
+    signal: "all categories return similar counts, or one bucket holds everything"
+    wrong_move: "conclude the distribution is flat"
+    pivot: >
+      Suspect the instrument before the data. A `CASE` whose first branch matches everything,
+      a NULL falling through every arm, or a predicate applied before the bucketing all produce
+      this. Sum the buckets against the unbucketed total — they must match.
+
+  - id: SPIKE-FM-04
+    name: a question grows a second question
+    signal: "answering Q-n needs a fact nobody has, and finding it is its own investigation"
+    wrong_move: "follow it and spend the timebox on one row"
+    pivot: >
+      Write the new question into the ledger as a derived row, mark it `open`, and carry on.
+      At `recommend` it becomes either a follow-up ticket or a handoff to
+      `domain-problem-solver`. The spike's job is to find the questions, not to finish all of them.
+
+  - id: SPIKE-FM-05
+    name: the answer contradicts the ticket
+    signal: "the evidence says the premise in the ticket description is wrong"
+    wrong_move: "quietly answer the question the premise implies, or re-scope the ticket"
+    pivot: >
+      This is the most valuable thing a spike produces. Write it as its own finding with the
+      evidence, in the short answer, not in a footnote. Do NOT edit the ticket's scope —
+      surface it and let the user decide.
+
+  - id: SPIKE-FM-06
+    name: the fix looks trivial
+    signal: "the cause is found and it is a two-line change sitting right there"
+    wrong_move: "fix it, since it is faster than writing the ticket"
+    pivot: >
+      Stop. Write the follow-up ticket instead, with the exact file, line and change. A spike
+      branch that carries code has no test, no review and no plan, and the two-line change is
+      how a spike turns into an unreviewed deploy.
+
+  - id: SPIKE-FM-07
+    name: an external party owns the answer
+    signal: "only the partner system's team / a PO / a network owner can confirm it"
+    wrong_move: "state our expectation as the answer, or message them directly"
+    pivot: >
+      Grade the row `external`. Write the exact question that needs asking and who can answer
+      it. Give it to the user. Never contact anyone yourself — answering ON the ticket is allowed
+      because the ticket asked for it; starting a conversation with a person is not.
+
+  - id: SPIKE-FM-08
+    name: prior ticket's conclusion reused
+    signal: "the linked ticket already states the answer, and it is convenient"
+    wrong_move: "cite it as evidence"
+    pivot: >
+      Re-check it against the current code or data, then cite your own run. A conclusion from
+      last sprint was true at a commit that has since moved. If re-checking is too expensive,
+      grade the row `inferred` and say which ticket it came from.
+
+  - id: SPIKE-FM-09
+    name: timebox spent, rows still open
+    signal: "the ticket's timebox is reached and the ledger is not full"
+    wrong_move: "keep going, because it is nearly done"
+    pivot: >
+      Ship what exists. Every open row becomes `blocked` or `open` with the one thing that
+      would close it. Tell the user the timebox is spent and what the remaining rows would cost
+      — they decide whether to extend. Overrunning silently is the failure, not stopping short.
