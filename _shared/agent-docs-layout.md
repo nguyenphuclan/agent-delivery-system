@@ -47,7 +47,7 @@ public-project-docs/<project>/
 ├── specimens/                 ← specimen-sandbox output (existing)
 ├── concepts/                  ← project-specific judgments (existing)
 ├── tickets/<ID>/              ← do-ticket per-ticket workspace
-├── flows/                     ← /learn canonical flows
+├── flows/                     ← flow_*.md + flow_index.yaml (/learn procedures) · business_flows.yaml + _concerns.yaml (scan-init flows; flow_index.yaml business_flows_ref: points here)
 └── INDEX.md                   ← human-readable top-level index (doc-manager)
 ```
 

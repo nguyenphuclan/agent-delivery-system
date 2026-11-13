@@ -41,6 +41,7 @@ phases:                     # one line per phase that RAN; timings optional
 failure_modes_hit: []       # [] is a real, useful value — say it, don't omit it
 gates_triggered: []
 unknown_failures: []        # THE highest-value field: feeds new FM-XX proposals
+knowledge_misses: []        # system facts the run lacked, and whether the docs had them (see below)
 ```
 
 Everything else in this document (per-phase timestamps, `triage.*`, `strategy_outcomes`, `quality_signals`, …) is
@@ -174,6 +175,42 @@ unknown_failures:
     resolution: "Detached existing entity before Update()"
     not_in_registry: true       # if true, /learn proposes new FM-XX
 
+# System facts the run did not have when it needed them (REQUIRED, [] allowed).
+# Answers "was this miss the docs' fault?" -- 15 tickets of telemetry could not.
+# A fact about the SYSTEM: business rule, API behaviour, which service owns what, how a helper is
+# meant to be used. NOT the local machine or tools (stale node_modules, DLL lock, docker down) --
+# those go to unknown_failures.
+# Log one when: the owner answered it, a code read changed the plan, or a live run proved a guess wrong.
+knowledge_misses:
+  - fact: "POST /orders answers 200 with an empty list when the body fails validation"
+    phase: api-test
+    area: external              # business | cross-service | external | data | frontend | config
+    found_by: live-run          # owner | code | live-run | log
+    docs_had_it: "no"           # no | yes-not-found | wrong  (quote "no": bare no is a YAML boolean)
+    where: "api/entities/order.yaml"   # no: where it SHOULD live; else: where it WAS
+    cost: "one wrong conclusion"   # optional, short
+    promoted: "written api/entities/order.yaml"   # set by step 16-0 (promote-knowledge.md)
+  # How to set docs_had_it -- grep {project_docs} for 2-3 keywords of the fact BEFORE writing:
+  #   no            -> no hit. A content gap. promote-knowledge should write it.
+  #   yes-not-found -> a hit that already said it. A structure gap: the docs had it, the run did not find it.
+  #   wrong         -> a hit that says something else. A stale doc: fix the doc.
+  # area -- which part of the system the fact is about:
+  #   business      -> a business rule (status, deadlines, permissions, routing)
+  #   cross-service -> how our services call each other, who owns which data
+  #   external      -> a partner or outside system (a partner API, identity provider, data warehouse,
+  #                    issue tracker) or how our API behaves to callers
+  #   data | frontend | config -> DB shape, UI behaviour, settings/env wiring
+  # promoted -- REQUIRED before commit: written <file> | fixed <file> | indexed <file> | skipped: <reason>
+
+# Knowledge checkpoints (promote-knowledge.md) -- one line each time one runs.
+# Gate: pre-commit needs K3, and K1 for types that run analyze; done needs K4.
+knowledge_checkpoints:
+  - id: K1                    # K1 | K2 | K3 | K4 | STOP
+    after_phase: analyze
+    misses: {new: 3, written: 2, fixed: 0, indexed: 1, skipped: 0}
+    questions: {gap: 1, confirm: 1, decision: 3}   # confirm > 0 = asked what could be looked up (defect)
+    asked_owner: 1            # gap questions sent to the owner at once
+
 # Promotions / type changes mid-flow
 type_promotions:
   - from: bugfix-small
@@ -230,6 +267,8 @@ quality_signals:
 | `failure_modes_hit[]` | do-ticket when FM-XX matches |
 | `gates_triggered[]` | do-ticket when gate fires |
 | `unknown_failures[]` | implement / api-test / others when an unrecognized error pattern recurs ≥3 times |
+| `knowledge_misses[]` | Any phase, the moment an owner answer, code read or live run gives a system fact the run lacked. `promoted` is set at the next knowledge checkpoint (`promote-knowledge.md`). Checked by `check_artifacts.py` at every gate: key must exist; each entry needs `fact`, a valid `area`, a valid `docs_had_it` and a `promoted` result |
+| `knowledge_checkpoints[]` | Each checkpoint K1 / K2 / K3 / K4 / STOP, one line. Gate: pre-commit needs K3 (+ K1 for types that run `analyze`); `done` needs K4 |
 | `triage.*` | do-ticket Phase 9.7 (score) → Phase 12 (`actual_*`, recalibration) → Phase 23 (`downstream`) |
 | `type_promotions[]` | do-ticket on promotion |
 | `ended_at`, `duration_seconds` | do-ticket at phase=done |
@@ -285,6 +324,24 @@ score is graded against what the run actually cost. `/learn` grades it:
 
 Never retune by loosening a threshold to make past runs look correct — a threshold moved to fit the data
 it was meant to judge measures nothing. Change the weight or the veto, and state which tickets forced it.
+
+### 8. Docs fitness (from `knowledge_misses[]`)
+
+The question this answers: when the agent missed something, was it the docs? Count entries by
+`docs_had_it` across all tickets. Wait for **≥5 tickets that carry the key** before calling a trend.
+
+| Largest share | Means | Propose |
+|---|---|---|
+| `no` | Content gap -- the fact was never written | Check step 16-0 wrote it (`promoted: written ...`) and the file is the one INDEX.md points to |
+| `yes-not-found` | Structure gap -- the fact was there, the run did not reach it | A docs structure fix: fewer entry indexes (`INDEX.md`, `_index.yaml`, `_quickref.yaml`), one home per kind of fact. Name the file each miss was in |
+| `wrong` | Stale doc | Fix each doc now, then review the rest of that folder for the same drift |
+
+**Split every count by `area`.** The weak part of the docs is the area with the most misses, and an
+area whose `no` count does not fall after promotes is being written to the wrong home. Same-area misses
+in 2+ tickets with `docs_had_it: yes-not-found` name a file that needs better INDEX.md keywords.
+
+Also report misses per ticket. A ticket with 0 misses and many `unknown_failures` says the cost is the
+machine, not the docs (one hand count: ~10% of 45 failures were system knowledge).
 
 ## Privacy / cleanup
 

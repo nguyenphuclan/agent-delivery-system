@@ -181,6 +181,9 @@ A skill may tighten this. **No skill may report a bare verdict.**
   next to an 84 MB artifact, and the gate was reported green off a job that had exited 4
   (PROJ-11416, 2026-09-15). The number happened to be right, which is the dangerous part: a
   correct claim on absent evidence teaches you to skip the evidence next time.
+- ❌ **A gate that cannot pass because of step ORDER.** scan-drift refresh-baseline: F-2 checked stored
+  fingerprints, but real fingerprints were written only at F-3, after F-2. Ask: which step writes the thing
+  this step reads? Do that write as its own step outside the gate; never relax the gate (2026-08-29).
 
 ## Telemetry
 

@@ -268,6 +268,13 @@ phases:
       unfinished work.
 
   done:                                 # Phase 10
+    cleanup_step:                       # hard rule 12 — runs before telemetry closes. One spike left ~20 GB of publish output
+      input: "{ticket_dir}/build-outputs.txt — every publish/build dir the spike made (scratch folder or %TEMP%), written when made; '# none' if it built nothing"
+      dry_run: "list each dir in the file that is still on disk, with its size in GB"
+      delete: "delete those dirs only after the owner types YES in THIS session. No YES → hand the owner the list and the delete command to run."
+      keep: "owner wants a dir kept → change its line to 'keep <path>'"
+      gate: "done does not close while a listed dir (not marked keep) is still on disk, or the file is missing"
+      records: "spike-telemetry.yaml build_output: {freed_gb, left_gb, kept: [paths]}"
     outputs:
       - "{ticket_dir}/spike-telemetry.yaml"
     records:
@@ -287,3 +294,4 @@ ordering_invariants:
   - "spike-doc (7) before publish (8) — the comment is rendered, never authored twice"
   - "publish (8) and follow-ups (9) both require their gate; no flag auto-approves them"
   - "no phase writes product code at any point"
+  - "done (10) does not close while a dir in build-outputs.txt is still on disk — the spike's build output is deleted or marked keep"

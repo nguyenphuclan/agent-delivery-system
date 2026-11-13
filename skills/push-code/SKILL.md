@@ -98,7 +98,7 @@ measured something. It cannot say the review read THIS change. In the ticket's o
 | file exists with real scope, but names a **different** base/commit, names none, or is older than the last commit | **STALE, not clean** → the review covered another change on this ticket. Review THIS diff and append a new dated section. A second change on one ticket inherits the first one's tick otherwise |
 | file exists but its scope line says 0 files or 0 added lines | **HOLLOW, not clean** → re-resolve the base and the repo dir, then re-run the review. A review of an empty diff prints the same ✅ as a review of forty files |
 | file missing | **G-REVIEW-MISSING → run the review NOW**, before anything else. Invoke `do-ticket` phase 13.5 (`code-quality-review.md` §B) on this diff, write the artifact, resolve every `must-fix`, and only then continue |
-| no ticket dir at all (non-ticket push) | Run the review inline per §B and write `code-quality-review.md` beside the branch's notes. Still no push without the artifact |
+| no ticket dir at all (non-ticket push) | Run the review inline per §B and write `code-quality-review.md` beside the branch's notes. Still no push without the artifact. Then run `python _shared/tools/check_artifacts.py <that notes dir> pre-push --type no-ticket` (it waives only `run-telemetry.yaml`, which no ticket-less push can have) |
 | `ticket_type` ∈ `doc-only`, `spike`, `hotfix` | Genuinely skipped by type — record `skipped-by-type: <type>` in the push report, do not invent a review |
 
 **Write the base ref INTO the review artifact.** Every review section starts with a scope line, and that

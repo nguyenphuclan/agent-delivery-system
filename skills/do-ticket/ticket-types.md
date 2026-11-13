@@ -100,14 +100,17 @@ Full specs: `blast-radius.md` (8.7) and `legacy-contract.md` (9.8 + 12.7).
 
 Phase keys reference do-ticket/SKILL.md. `*` = optional. `!` = type-specific gate.
 The three gate phases above are **not repeated** in each list — apply them per the table.
+`e2e` (15.1) runs in every list that has `test-cases`: local after `api-test`, and again on TEST at `done`.
+The **G-E2E** row in SKILL.md's phase list checks it.
+Every type except `doc-only` also runs step **16-0 `promote-knowledge`** inside `commit` (`promote-knowledge.md`) — not repeated in the lists. It used to sit after `pr-review` and never ran.
 
 ### `crud-feature` (default — current full pipeline)
 
 ```
 branch → rebase-check → requirements → enrich → analyze → invariant-scope → test-cases → plan
   → fe-impact-check → triage → unit-tests → implement → regression → completeness-audit → code-quality-review
-  → env-gate → api-test → commit → pre-push → ci-check → invariant-encoded → qa-checklist
-  → pr-ready → pr-review → promote-knowledge
+  → env-gate → api-test → e2e → commit → pre-push → ci-check → invariant-encoded → qa-checklist
+  → pr-ready → pr-review
 ```
 
 `enrich` runs PO-proxy enrichment (project-docs only, no source code). Always pauses for user review on first run.
@@ -124,7 +127,7 @@ Risk profile baseline: medium. All standard gates apply.
 ```
 branch → rebase-check → requirements (lite) → plan (lite) → triage → unit-tests → implement
   → regression → code-quality-review (lite) → commit → pre-push → ci-check → qa-checklist
-  → pr-ready → pr-review → promote-knowledge
+  → pr-ready → pr-review
 ```
 
 `code-quality-review (lite)` = dimensions 1,2,4,6,8 only (structural + test core).
@@ -144,8 +147,8 @@ branch → rebase-check → requirements (lite) → plan (lite) → triage → u
 ```
 branch → rebase-check → requirements → investigate (domain-problem-solver)
   → analyze → test-cases → plan → fe-impact-check → triage → unit-tests → implement → regression
-  → completeness-audit → code-quality-review → env-gate → api-test → commit → pre-push
-  → ci-check → qa-checklist → pr-ready → pr-review → promote-knowledge
+  → completeness-audit → code-quality-review → env-gate → api-test → e2e → commit → pre-push
+  → ci-check → qa-checklist → pr-ready → pr-review
 ```
 
 `code-quality-review` (Phase 13.5) full version. Adds an explicit `investigate` phase before analyze. Output: `investigation-findings.md`. Used when root cause is unknown at ticket creation time. `fe-impact-check` auto-skips when plan touches no FE-consumed endpoint.
@@ -182,7 +185,7 @@ Risk profile: critical. Requires G3 confirmation before hotfix-deploy.
 
 ```
 branch → rebase-check → plan → triage → behavior-diff-tests → implement → regression
-  → code-quality-review (lite) → commit → pre-push → ci-check → pr-ready → pr-review → promote-knowledge
+  → code-quality-review (lite) → commit → pre-push → ci-check → pr-ready → pr-review
 ```
 
 `code-quality-review (lite)` matters most here — a refactor's whole point is better structure; the gate verifies the diff actually improved it.
@@ -232,7 +235,7 @@ branch → doc-edit → commit → pr-ready → pr-review
 
 ```
 branch → plan → triage → migration-script → dry-run-test → implement (apply migration)
-  → regression → code-quality-review → pre-push (with G3) → commit → pr-ready → pr-review → promote-knowledge
+  → regression → code-quality-review → pre-push (with G3) → commit → pr-ready → pr-review
 ```
 
 `code-quality-review` (Phase 13.5) reviews any application/data-access code shipped alongside the migration (not the SQL script itself).
@@ -251,8 +254,8 @@ Risk profile: critical. `migration-script` artifact lands in `public-project-doc
 
 ```
 branch → rebase-check → requirements → enrich → analyze → test-cases → plan → triage → unit-tests (Jest)
-  → storybook-stories → implement → e2e-smoke → regression → code-quality-review → commit
-  → pre-push → ci-check → qa-checklist → pr-ready → pr-review → promote-knowledge
+  → storybook-stories → implement → e2e-smoke → regression → code-quality-review → e2e → commit
+  → pre-push → ci-check → qa-checklist → pr-ready → pr-review
 ```
 
 `code-quality-review` (Phase 13.5) full version — naming/duplication/thinness apply to component + store code too.

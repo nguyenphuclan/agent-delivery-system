@@ -4,8 +4,8 @@ description: >
   Promotes entries from observations.md (temporary staging buffer) to permanent long-term storage
   in the correct skill SKILL.md or public-project-docs location. Use this skill whenever the user wants to
   "promote observations", "graduate observations to long-term", or calls /promote-observations.
-  Also runs as do-ticket Phase 22.5 (promote-knowledge) when a ticket completes — see do-ticket/promote-knowledge.md.
-  Never auto-triggered in manual mode; ticket-tail mode is invoked by do-ticket.
+  Ticket-tail mode is manual only now: do-ticket writes its own docs at step 16-0 (do-ticket/promote-knowledge.md).
+  Never auto-triggered.
 ---
 
 # promote-observations
@@ -14,9 +14,11 @@ description: >
 graduates mature entries to their permanent homes so the assistant doesn't load irrelevant
 knowledge every session.
 
-This skill also runs at the **tail of do-ticket** (Phase 22.5 = promote-knowledge). There its
-sources grow beyond `observations.md` to the ticket's `implement-summary.md`, `plan.md`,
-`requirements-analysis.md`, and the merge commit's git diff. Same UX, broader scope.
+**Ticket-tail mode** widens the sources to one ticket's `implement-summary.md`, `plan.md`,
+`requirements-analysis.md` and git diff. do-ticket no longer calls it: as Phase 22.5 with an approval
+table it never ran in 11 tickets. do-ticket now promotes at step 16-0 from `knowledge_misses[]`, gated,
+AI-first (`do-ticket/promote-knowledge.md`). Use ticket-tail mode by hand to mine an OLD ticket that
+closed before that step existed.
 
 ---
 
@@ -25,7 +27,7 @@ sources grow beyond `observations.md` to the ticket's `implement-summary.md`, `p
 | Mode | Trigger | Sources | Destinations |
 |---|---|---|---|
 | **manual** (default) | User invokes `/promote-observations` | `observations.md` only | skill SKILL.md files, `_quickref.yaml`, `knowledge_<topic>.md` |
-| **ticket-tail** | do-ticket Phase 22.5 invokes `/promote-observations --mode=ticket-tail --ticket=<ID>` | + `tickets/<ID>/{implement-summary,plan,requirements-analysis}.md`, git diff, `invariants_encoded.yaml` | + `domain/<entity>.yaml`, `concepts/<topic>.md`, `patterns/<name>.md`, `runbooks/<name>.md`, `tickets/<ID>/promoted.md` |
+| **ticket-tail** | By hand on an old ticket: `/promote-observations --mode=ticket-tail --ticket=<ID>` | + `tickets/<ID>/{implement-summary,plan,requirements-analysis}.md`, git diff, `invariants_encoded.yaml` | + `domain/<entity>.yaml`, `concepts/<topic>.md`, `patterns/<name>.md`, `runbooks/<name>.md`, `tickets/<ID>/promoted.md` |
 
 Step UX is the same in both modes: load → categorize → show plan → confirm → write → clean → report.
 Ticket-tail mode adds detection in STEP 2, more destinations in STEP 4, and an audit log in STEP 6.
@@ -305,6 +307,11 @@ After all writes succeed, remove promoted entries from `observations.md`.
 
 **Remove**: every entry that was just written to a destination (including DELETE-only entries).
 
+**Match the drain to the EXACT lines approved at STEP 3** - the full line text, never a task type,
+category or substring. On 2026-09-18 a filter on one task type deleted all 14 entries of that type
+(6 never transported) plus a header comment. Take a backup BEFORE the write, then check the arithmetic:
+lines removed must equal lines planned.
+
 Do it with `rewrite(OBS, drain_fn, label="promote-observations")` (STEP 4): `drain_fn` receives the
 current file text and returns it minus the promoted entries, matched by content. By hand: re-read the file
 now, drop the promoted entries from that fresh text by matching their content, and write the result. Lines
@@ -344,7 +351,7 @@ promote_knowledge:
 ## Rules
 
 - **Manual mode never auto-runs.** Only execute when the user explicitly calls `/promote-observations`.
-- **Ticket-tail mode is invoked by do-ticket Phase 22.5**, not by the user directly. The same UX gates apply.
+- **Ticket-tail mode is manual** (an old ticket, by hand). The same UX gates apply. do-ticket's own promote is step 16-0.
 - **STEP 3 (show plan + confirm) is mandatory in both modes.** Never skip it.
 - **Write before delete.** Do not remove from `observations.md` until the destination write succeeds.
 - **One write failure = stop and report.** Don't continue writing other entries if a write fails.

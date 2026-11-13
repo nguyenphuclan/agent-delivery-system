@@ -72,6 +72,8 @@ A bare file name here (`ticket-types.md`, `do-ticket-update.md`, …) is a do-ti
    - **Dirty AND current branch = `<TICKET_ID>`** (F5) → user already on correct branch with in-progress work → proceed without stashing. No checkout needed.
    - **Dirty AND current branch ≠ `<TICKET_ID>`** (F4) → G5: offer (a) `git stash push -m "do-ticket stash: <current_branch> before switching to <TICKET_ID>"` then switch (never auto-pop), (b) git worktree (recommended for parallel work).
    - **Clean** → proceed to step 4.
+   - **`fe-only` ticket:** do not ask (F4/G5 does not apply to the FE repo). Main FE checkout free → work here.
+     Busy with other FE work → invoke `worktree-setup` (its Phase 2a fe-only rule makes the FE worktree only).
 4. Checkout or create branch:
    - Branch exists locally (F2) → `git checkout <TICKET_ID>` (do not re-create) — unless its work is
      already merged. Squash merges hide this from `git branch --merged`, so check

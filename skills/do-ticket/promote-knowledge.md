@@ -1,355 +1,133 @@
-# promote-knowledge — do-ticket tail phase
+# promote-knowledge — knowledge checkpoints: catch business gaps and fix the docs at once
 
-Closes the flywheel gap: knowledge discovered during a ticket (new invariants,
-new patterns, new gotchas) currently dies inside `tickets/<ID>/implement-summary.md`.
-This phase extracts that knowledge and graduates it to permanent stores so the
-next ticket on the same area starts from a richer baseline.
+Owner rule: *a gap found and left for later is a gap missed. Fix the docs now; if a human is needed, say so
+now. But check at chosen points, not after every action.*
 
-Status: **implemented** — wired as Phase 22.5 in `phase-contracts.yaml`. It runs as
-`promote-observations --mode=ticket-tail --ticket=<ID>` (the existing skill was extended, not
-duplicated). This file is the spec for that mode: `promote-observations` owns the steps, and
-points back here for Inputs, Detection rules, Classification, User gate, Ticket-folder log and
-Failure modes.
+## Checkpoints — when
 
----
+Not after every tool call. Only where business knowledge enters the run, plus the moments context dies.
 
-## Where it sits
-
-```
-... → pr-ready (21) → pr-review (22) → [PROMOTE-KNOWLEDGE 22.5] → done (23)
-```
-
-Runs after `pr-review` resolves (or directly after `pr-ready` if no review
-loop). Reason: must run after the final implement-summary is written and the
-PR description is settled — those two artifacts are the highest-density
-sources of promotable content.
-
-Skipped for ticket types: `doc-only`, `spike`. (No durable code change → no
-new invariants.) Other types always run promote-knowledge unless user opts out.
-
----
-
-## Inputs
-
-| Input | Required | Used for |
+| Id | When | Why here |
 |---|---|---|
-| `tickets/<ID>/implement-summary.md` | yes | primary detection source |
-| `tickets/<ID>/plan.md` | yes | distinguishes "we already knew this" from "discovered" |
-| `tickets/<ID>/requirements-analysis.md` | yes | maps findings back to entities in scope |
-| `tickets/<ID>/invariants_encoded.yaml` | optional | already-known invariants — exclude from "new" set |
-| Git diff of merge commit | yes | confirms what code actually changed (filters claims-only findings) |
-| `~/.claude/skills/assistant/observations.md` | yes | session observations from this ticket window |
-| `{project_docs}/_index.yaml` | yes | fingerprint update target |
-| `{project_docs}/domain/_index.yaml` | yes | duplicate detection in domain shards |
-| `{project_docs}/INDEX.md` | yes | duplicate detection across all stores |
+| **K1** | End of Phase 6 `analyze`, before `test-cases` / `plan` | Docs and code are read; every open business question is now known. Asking here is early — nothing is built on a guess yet |
+| **K2** | The turn the owner answers a **durable** business question (see Question sort) | The fact is in hand. Write it before the next step — this is the "do it now" rule. Event, not a sweep |
+| **K3** | Step **16-0** of Phase 16 `commit`, before the pre-commit gate | Code reads in `implement` and live runs in `api-test` taught things the design did not know |
+| **STOP** | Before any session end (S1 / S2 / S3 / SZ) and before parking a blocked run | The next session does not have this context. What is not written now is lost |
+| **K4** | Phase 23 `done` | Catch-up for CI, review and QC findings after commit |
 
-Filter for observations: only entries with `date >= ticket.branch_created_at`
-AND ticket-related task type. Avoids promoting unrelated session noise.
+A checkpoint with nothing new since the last one prints one line and moves on. Cost is a look back, not
+a re-read of the ticket.
 
----
+## At each checkpoint — what
 
-## Detection rules — what counts as promotable
+1. **Look back since the last checkpoint only:** owner answers and corrections, questions the agent asked
+   or is about to ask, plan changes, failed live runs, review/QC comments.
+2. **Question sort** — each question asked or pending, about the business or the system:
 
-Scan input sources for content matching any of these signals:
+   | Sort | Test | Then |
+   |---|---|---|
+   | `gap` — missing business knowledge | The answer would still be true for the NEXT ticket in this area (how the business or a service works), and docs + code do not hold it | It is a `knowledge_miss`. Code answers it → settle, write the doc now, drop the question. Only a human knows → ask the owner **now**, then write the doc at K2 |
+   | `confirm` — asking what could be found | A grep, a file read, a test run or `{project_docs}` answers it (or it is a "shall I…?" with an obvious answer) | A defect. Do not ask; settle it. If the docs had it and the run missed it → `knowledge_miss` with `docs_had_it: yes-not-found` (fix INDEX.md keywords) |
+   | `decision` — the owner must choose | Intent, priority, scope or a trade-off for THIS ticket (a `Q-CHOICE`, a permission) | Normal. Ask with options. Nothing to fix in the docs |
 
-| Signal | Pattern (regex-ish) | Likely class |
-|---|---|---|
-| Domain rule | "always", "never", "must", "cannot", "denies", "rejects", "precondition" | invariant |
-| State transition | "when X → Y", "transitions to", "becomes <STATUS>" | invariant or concept |
-| Cross-entity rule | sentence references ≥2 entities from `domain_entities_in_scope` | concept |
-| Code recipe | "to add a new X, you need to..." / "the pattern for Y is..." | pattern |
-| Operational fix | "if you see error X, run Y" / "to recover from..." | runbook |
-| Gotcha | "watch out for", "surprised that", "expected X but got Y" | observation |
-| New error key / enum | git diff adds enum value or error code constant | invariant (entity) |
-| New constraint | git diff adds NOT NULL / CHECK / UNIQUE / FK | invariant (entity) |
-| Load-bearing base value | `code-quality-review.md` §Supersession lists a `marked load-bearing` field (dim 11) | field-impact registry |
+   Tag the question in the ledger with `durable: true` for `gap`, `false` otherwise.
 
-**Filter out:**
-- Generic statements ("we wrote tests", "code compiled")
-- Already covered by `invariants_encoded.yaml` (re-encoded, not new)
-- Already in target store (duplicate detection — see Classification)
-- Single-occurrence implementation detail with no reuse signal
+   **A `gap` is never `[AI-decided]`, also in AI-first.** Typical `gap`s: a unit (calendar or working days),
+   a counting rule (is the start day "day 1"?), a time of day (start or end of the hours, before / after them),
+   the value stored when a setting is empty. First read the project's fixed-rule docs for the area (`INDEX.md`
+   keywords). They do not answer → ask the owner now (step 4), build the rest, and mark the default you build
+   on `[asked owner <date>]`. "Settled by code" means the code shows how the business works today (e.g. the
+   only units in an enum). An AC example, the ticket's arithmetic or one reading of the AC text does not
+   settle a `gap`. (PROJ-11685: four such defaults — calendar days, a `created_at` fallback, a requested-date
+   clock time, an after-hours time — were each built, tested, proved and then reversed by the owner.)
+3. **Fix now.** Every new `knowledge_miss` is promoted in this checkpoint (sections below), not at the end.
+4. **Human needed → tell the owner now**, in one batched message: the `gap` questions only, each with what
+   docs and code were checked and a default if no answer. Do not hold them for a later gate.
+5. **Record** one line in `run-telemetry.yaml.knowledge_checkpoints[]` and print it:
+   ```
+   [knowledge K1] misses 3 (written 2 · indexed 1) · questions 5: gap 1 · confirm 1 (defect) · decision 3 · asked owner 1
+   ```
+   `check_artifacts.py` needs K1 (types that run `analyze`) and K3 at pre-commit, and K4 at `done`.
 
-A finding is promotable only if **(detection signal AND not duplicate AND
-backed by either git diff change OR explicit user statement)**. Pure
-speculation in implement-summary doesn't promote.
+## Why checkpoints, not one tail phase
 
----
+The old version was Phase 22.5, after `pr-review`. It **never ran**: 0 `promoted.md` across 11 tickets with
+telemetry. Three causes, each fixed below:
 
-## Classification
-
-Each detected finding routes to exactly one destination:
-
-| Class | Destination | Format |
-|---|---|---|
-| Single-entity invariant | `{project_docs}/domain/<entity>.yaml` → `invariants[]` append | yaml entry: `{ id, statement, source_ticket, source_evidence }` |
-| Cross-entity concept | `{project_docs}/concepts/<topic>.md` (create if missing) | markdown section |
-| Reusable code pattern | `{project_docs}/patterns/<name>.md` (create if missing) | markdown with code example |
-| Operational fix | `{project_docs}/runbooks/<name>.md` (create if missing) | runbook template |
-| Quick fact / 1-liner | `{project_docs}/_quickref.yaml` → matching section | yaml entry per `promote-observations` STEP 4 |
-| Plain observation, count=1 | `~/.claude/skills/assistant/observations.md` (stays in staging) | one-line append |
-| Load-bearing base value | `{project_docs}/domain/_field_impact.yaml` → `fields{}` upsert | yaml entry: `{ role, consumers[], supersede_note, discovered_in }` |
-
-**Topic / entity selection rules:**
-
-- Entity for invariant: take first entity in `requirements-analysis.md` →
-  `domain_entities_in_scope` that the finding's text mentions.
-- Topic for concept: derive from finding noun phrase. Show user the proposed
-  filename; user can rename or merge into an existing concept.
-- Pattern name: imperative phrase ("add-error-key.md", "wire-portal-endpoint.md").
-
-**Duplicate detection (mandatory before any write):**
-
-1. Grep `INDEX.md` for finding's keywords → list candidate files.
-2. Read each candidate; semantic-match (≥70% phrase overlap = duplicate).
-3. Duplicate found → propose **edit existing** (append source_ticket reference)
-   instead of new entry.
-
-**Special case — duplicate found in `domain-problem-solver/`:**
-
-Investigation files (e.g. `domain-problem-solver/<topic>-investigation.md`)
-are *de facto* concept docs in the wrong folder. When duplicate detection finds an
-investigation file with ≥70% overlap, STEP 3 must offer three actions instead of
-the default two:
-
-| Action | When to pick | Effect |
-|---|---|---|
-| `edit-in-place` | Investigation is still active / has open questions | Append finding to investigation doc; no migration |
-| `migrate` (recommended) | Investigation is closed and finding is durable | Move investigation content → `concepts/<topic>.md`, leave one-line pointer in investigation doc, then append finding |
-| `new-anyway` | User judges the topics genuinely differ | Create new file; investigation stays untouched (rare; user must justify) |
-
-Default offered action: `migrate`. Investigation files that have been closed
-(check for `Status: resolved` / `Status: closed` header, or no edits in >30 days)
-are migration candidates regardless of finding overlap — the audit log can flag
-them in batches.
-
----
-
-## User gate
-
-Promote-knowledge is **never silent**. Show this table before any write:
-
-```
-| # | Finding (truncated)                                       | Class      | Destination                              | Action |
-|---|-----------------------------------------------------------|------------|------------------------------------------|--------|
-| 1 | Order rejected if a conflicting open order already exists | invariant  | domain/order.yaml                        | NEW    |
-| 2 | Always bump shared-lib version on multi-repo commits      | runbook    | runbooks/shared-lib-multi-repo-commit.md | EDIT   |
-| 3 | Validator pattern for optional foreign-key field          | pattern    | patterns/nullable-fk-validator.md        | NEW    |
-| 4 | Build fails with MSB3027 if service still running         | observation| observations.md (count bump)             | KEEP   |
-```
-
-Then prompt:
-
-> Proceed? You can:
->   - skip a row (`skip 3`)
->   - reclassify (`row 2 → concept/multi-repo-coordination`)
->   - merge into existing (`row 1 merge into existing order.yaml#denied-states`)
->   - **bundle related rows into one file** (`bundle 1+5+10 → concepts/order-rules.md`)
->   - rename (`row 3 rename to validator-conditional-required`)
->   - approve all (`y`)
-
-**Bundling rule (rule-dense tickets):** when ≥3 candidates target adjacent
-concept files (e.g. `concepts/sla-extension-rules.md`, `concepts/sla-stop-codes.md`,
-`concepts/sla-state-machine.md`), the gate must surface a `bundle` suggestion
-proactively — without it, one ticket can spawn 4+ new concept files that later
-need consolidation. Detection: count distinct destinations matching
-`concepts/<prefix>-*.md` for the same `<prefix>`; if ≥3, propose
-`bundle into concepts/<prefix>.md`. User can accept, override the filename, or
-keep them split.
-
-Wait for confirmation. No writes happen until user approves explicitly. This
-mirrors `promote-observations` STEP 3 — same UX, broader inputs.
-
----
-
-## Outputs
-
-### File writes (after user approval)
-
-| Target | Write rule |
+| Old cause | Fix |
 |---|---|
-| `domain/<entity>.yaml` | append to `invariants[]` array; preserve existing entries |
-| `concepts/<topic>.md` | create with template if missing; append section if exists |
-| `patterns/<name>.md` | create with template if missing; append section if exists |
-| `runbooks/<name>.md` | create or append; update `runbooks/INDEX.md` |
-| `_quickref.yaml` | per existing `promote-observations` STEP 4 rules |
-| `domain/_field_impact.yaml` | upsert field key; merge `consumers[]` (union, dedup); preserve other fields. Registry already written lazily by Phase 13.5 — 22.5 only dedups + reindexes |
-| `INDEX.md` | regenerate keyword → path entries for any new file |
-| `_index.yaml` | bump `last_updated` + recompute fingerprint for touched artifacts |
+| Sat after `pr-review`, which often happens days later in another session, or never in-session | Runs at K1–K4 while the facts are fresh, and before every session end. K1, K3, K4 are gated, so they run |
+| Had to detect findings by regex over `implement-summary.md` — heavy and noisy | Main input is `knowledge_misses[]`: facts the run already paid for, already named |
+| Waited for the owner to approve a table | AI-first: write, then list the writes in the final summary. The docs folder is under git, so every write is a diff the owner can revert |
 
-### Ticket-folder log
+Nothing was gated on it, so nothing made it happen. Now `check_artifacts.py` blocks commit, push and
+`done` while any `knowledge_misses` entry has no `promoted` result.
 
-Write `tickets/<ID>/promoted.md`:
+## Input
 
-```markdown
-# Promoted Knowledge — <TICKET_ID>
+`run-telemetry.yaml` → `knowledge_misses[]` (schema: `run-telemetry-schema.md`). At each checkpoint, make
+the list complete for the stretch since the last one. Walk `owner_answers`, plan changes, and failed live
+runs. Each one that gave a **system** fact (business rule, cross-service call, external service behaviour,
+data, frontend, config) is an entry. Local machine and tool problems are not — they go to `unknown_failures`.
 
-Generated: <iso>
+Optional, only if cheap: other durable facts in `implement-summary.md` (a new error code, a new
+constraint, a rule the code now enforces). Log them as entries too, so the gate sees them.
 
-## Promoted (N)
-| Finding | Class | Destination | Mode |
-|---|---|---|---|
-| ... | invariant | domain/order.yaml | NEW |
-| ... | runbook   | runbooks/shared-lib-multi-repo-commit.md | EDIT |
+## Per entry — by `docs_had_it`
 
-## Skipped (M)
-| Finding | Reason |
-|---|---|
-| ... | duplicate of order.yaml#L42 |
-| ... | user skipped |
-| ... | generic — no detection signal |
-
-## Telemetry
-- detection_candidates: <N>
-- promoted: <K>
-- skipped_duplicates: <D>
-- skipped_user: <U>
-- new_files_created: <F>
-```
-
-This log is the audit trail — any later cross-store review reads it to verify
-promotions stuck and weren't reverted.
-
----
-
-## Gating rules
-
-**Hard stops** — phase fails, do-ticket cannot reach `done`:
-
-| Condition | Reason |
-|---|---|
-| `_index.yaml` write fails | breaks fingerprint integrity for all skills |
-| Duplicate-detection grep fails | unsafe to write — could create real conflicts |
-| User explicitly aborts | respect intent |
-
-**Soft stops** — phase logs and proceeds:
-
-| Condition | Action |
-|---|---|
-| 0 promotable findings | write empty `promoted.md` with reason; advance to `done` |
-| User skips all rows | write `promoted.md` with all skipped; advance |
-| Single destination write fails | log to `promoted.md`, continue with others |
-
-**Skip conditions** — phase doesn't run at all:
-
-| Ticket type | Why |
-|---|---|
-| `doc-only` | no code change → nothing to promote |
-| `spike` | exploratory — explicit follow-up ticket carries learnings |
-| `hotfix` | promote on the corresponding root-cause ticket, not the patch |
-
----
-
-## Failure modes
-
-| Code | Trigger | Recovery |
+| `docs_had_it` | Action | `promoted` value |
 |---|---|---|
-| FM-PROMOTE-DUP-CONFLICT | Same finding text exists in 2+ stores | do not auto-merge and do not write a third copy. Log the row under `## Skipped` in `promoted.md` with reason `dup-conflict` and the path of every store that holds it, then ask the user which store is canonical; the others become a one-line pointer to it in a later cleanup |
-| FM-PROMOTE-FINGERPRINT-DRIFT | Target file mtime changed since this session opened it | re-read target, re-show user the gate |
-| FM-PROMOTE-INDEX-WRITE-FAIL | `_index.yaml` write rejected | hard stop; do-ticket blocks at this phase |
-| FM-PROMOTE-NO-ENTITY | Invariant detected but no entity in scope matches | reclassify as concept; ask user for topic name |
-| FM-PROMOTE-OVER-EAGER | >10 findings in one ticket | likely too-aggressive detection; user reviews & culls in gate |
+| `no` | Write the fact into its home (table below) | `written <file>` |
+| `wrong` | Fix the doc at `where`. Code wins; cite the evidence | `fixed <file>` |
+| `yes-not-found` | Do NOT copy the fact. Add the words you searched with to that file's line in `INDEX.md` (and a `_quickref.yaml` hint if it is a hot question), so the next grep hits | `indexed <file>` |
+| any | Not worth a doc (one-off, a particular) | `skipped: <reason>` |
 
----
+Then set `promoted:` on the entry in `run-telemetry.yaml`. That field is what the gate reads.
 
-## Telemetry (run-telemetry.yaml)
+## Where a fact lives — by `area`
 
-Append to `phase_results[]` on completion:
+First grep `{project_docs}/INDEX.md` for the fact's keywords. **The file INDEX.md already points to wins.**
+Use the table only when nothing matches. Default names shown; your project uses its own INDEX.md.
 
-```yaml
-- phase: promote-knowledge
-  duration_ms: <n>
-  detection_candidates: <n>
-  promoted: <n>
-  skipped_duplicates: <n>
-  skipped_user: <n>
-  new_files_created:
-    - concepts/state-machine.md
-    - patterns/nullable-fk-validator.md
-  edited_files:
-    - domain/order.yaml
-  failure_modes_hit: []
-```
+| `area` | Default home |
+|---|---|
+| `business` | `domain/<entity>.yaml` → `invariants[]` for one entity; `knowledge_<topic>.md` for a rule across entities |
+| `cross-service` | `domain/_relationships.yaml` or `topology/topology.yaml` (who calls whom, who owns the data); the topic's `knowledge_*.md` if it is a flow |
+| `external` | `knowledge_<partner>.md`. How OUR endpoint behaves → `api/entities/<entity>.yaml` |
+| `data` | `knowledge_db.md` or `db/` |
+| `frontend` | `knowledge_ui.md` |
+| `config` | `knowledge_code.md`, or `runbooks/` for a multi-step fix |
 
-Aggregated over time, this answers: "is the flywheel actually accelerating?"
-Healthy signal = `promoted/detection_candidates` ratio stable, `new_files_created`
-trends down (existing files absorb most findings), per-ticket `tokens_read` in
-`plan` phase trends down for tickets in already-promoted areas.
+A new file only when no home exists. Then add its line to `INDEX.md` in the same step.
 
----
+## Rules for the write
 
-## Phase-contracts.yaml entry (as wired — the live copy is in `phase-contracts.yaml`)
+- **Durable only.** Write the feature, the owner, the boundary. Not values, class names, line numbers or
+  field lists that a grep finds in seconds — those go stale and the doc starts to lie.
+- **Evidence on the line** — `(PROJ-XXXXX: owner answer 2026-11-03)` or `(code: <repo>/<area>)` or
+  `(live run: test-evidence/...)`. A fact with no source is not written.
+- **One home.** Grep before writing; if the fact is already there, it was `yes-not-found`, not `no`.
+- **Plain English**, short lines, like the rest of the docs.
+- **Never** edit `_index.yaml` fingerprints by hand; never touch prod data.
 
-```yaml
-  promote-knowledge:                    # Phase 22.5
-    skill: promote-observations (--mode=ticket-tail)
-    inputs:
-      required:
-        - "implement-summary.md"
-        - "plan.md"
-        - "requirements-analysis.md"
-        - "git diff of merge commit"
-        - "~/.claude/skills/assistant/observations.md"
-        - "{project_docs}/_index.yaml"
-        - "{project_docs}/domain/_index.yaml"
-        - "{project_docs}/INDEX.md"
-      optional:
-        - "invariants_encoded.yaml"
-    outputs:
-      - "promoted.md"
-      - "Updates to {project_docs}/domain/, concepts/, patterns/, runbooks/, _quickref.yaml, INDEX.md"
-      - "_index.yaml fingerprint refresh"
-      - "ticket-context.yaml (+ promoted_count, new_files_created[])"
-    state_writes:
-      phase: promote-knowledge
-    user_gate:
-      "Show detection table → wait for approve / skip / reclassify"
-    skip_when:
-      - "ticket_type ∈ {doc-only, spike, hotfix}"
-      - "user opted out via --no-promote flag"
-    failure_modes: [FM-PROMOTE-DUP-CONFLICT, FM-PROMOTE-FINGERPRINT-DRIFT,
-                    FM-PROMOTE-INDEX-WRITE-FAIL, FM-PROMOTE-NO-ENTITY]
-    hard_stops_on: [FM-PROMOTE-INDEX-WRITE-FAIL]
-```
+## Output
 
----
+- The doc writes in `{project_docs}`.
+- `promoted:` on every `knowledge_misses` entry.
+- One `knowledge_checkpoints[]` line per checkpoint (schema: `run-telemetry-schema.md`).
+- One block in the Phase 23 summary: `Docs updated: N written · N fixed · N indexed · N skipped`, each
+  with its file. The owner reads this instead of approving a table first.
 
-## Relationship to existing skills
+## Skip
 
-| Existing | Overlap | Resolution |
-|---|---|---|
-| `promote-observations` | Reads observations.md, writes to skills + `_quickref.yaml` | **Extended (done)** — its `ticket-tail` mode adds the new sources (implement-summary, plan, git diff) and new destinations (domain/, concepts/, patterns/). One skill, two modes; no near-identical second skill. |
-| `invariant-check --post` (Phase 19) | Updates `_maturity.yaml` for **already-known** invariants newly enforced in code | Stays as-is. invariant-check operates on `invariants_in_scope.yaml`. promote-knowledge discovers **new** invariants not in scope at plan time. Complementary, not duplicate. |
-| Session retrospective (if you run one) | Routing/skill insights about the session | Stays separate. A retrospective handles meta-skill insights (which skill to invoke when). promote-knowledge handles project-domain knowledge. Different audiences. |
-| Cross-store coherence review (by hand or any audit tool) | Checks that stores agree | Reads `promoted.md` as audit input. Verifies promotions stuck. Catches missed promotions: implement-summary has promotable content but `promoted.md` is empty. |
+`doc-only` only. Hotfix runs it too — hotfixes learn the most about external services and shared envs.
+A spike has its own flow (`spike` skill) and its own telemetry.
 
-**Decided:** extend `promote-observations` rather than add a new skill — same UX,
-similar steps, and no two skills doing adjacent jobs. Done as its `ticket-tail` mode.
+## How we know it works
 
----
-
-## Implementation status
-
-1. Add `promote-knowledge.md` (this file). ✓
-2. Extend `promote-observations` with `--mode=ticket-tail`. ✓
-3. Wire into `phase-contracts.yaml` between `pr-review` and `done` (Phase 22.5). ✓
-4. Still worth doing on a new project: add `concepts/`, `patterns/` folders to the
-   `{project_docs}` skeleton, and dry-run the detection on 2 closed tickets to check it
-   matches a manual classification before trusting it on live tickets.
-
----
-
-## Anti-patterns
-
-- ❌ **Auto-promote without user gate.** Silent writes to domain/ corrupt the
-  shared knowledge base if detection is wrong even once. Always gate.
-- ❌ **Promote everything from implement-summary.md.** Most lines are routine
-  ("added validator", "wrote test"). Detection signals matter — without them,
-  signal-to-noise drops and user starts skipping every row.
-- ❌ **Write to multiple stores for the same finding.** Pick one canonical home.
-  Cross-references in `INDEX.md` are how other stores find it.
-- ❌ **Skip duplicate detection to "save time".** Duplicates are the #1 way
-  knowledge stores rot. The grep is cheap (1s); skipping it is expensive
-  (audit cleanup later).
-- ❌ **Run on every ticket without skip rules.** doc-only and spike tickets
-  produce noise; promote-knowledge on them dilutes signal.
+`run-telemetry-schema.md` §8 counts entries by `area` and `docs_had_it`. If the same area keeps showing
+`no` after promotes, the writes go to the wrong home. If `yes-not-found` rises, the docs have it but the
+structure hides it — that is when a structure fix (fewer entry indexes) is due.
+`knowledge_checkpoints[].questions.confirm` above 0 in many tickets means the agent asks what it could
+look up — a behaviour fix, not a docs fix. `gap` falling over time in one area means the docs there are
+getting better.

@@ -128,6 +128,10 @@ These are the reason the skill exists. They are not advice.
     own action list says *"raise a ticket per item recommended"* does not change this — that
     action is satisfied by publishing the drafts where the PO can act on them.
 
+12. **The spike cleans up its own build output.** Each `dotnet publish` / build dir it makes in its
+    scratch folder or `%TEMP%` goes into `build-outputs.txt` the moment it is made. The last step deletes
+    them and records the GB freed (`phase-contracts.yaml` → `done`). One spike left about 20 GB.
+
 ## Gates
 
 | Gate | When | Asks |
@@ -158,5 +162,6 @@ the flag only means the ledger is ready.
 | The written answer | `{output}/spikes/<TICKET>.md` |
 | Follow-up ticket drafts (handed over, not raised) | `{output}/tickets/<TICKET>/follow-ups.md` |
 | Run telemetry (for a later retrospective) | `{output}/tickets/<TICKET>/spike-telemetry.yaml` |
+| Build/publish dirs made (one per line, or `# none`) | `{output}/tickets/<TICKET>/build-outputs.txt` |
 
 The Jira comment is rendered from `{output}/spikes/<TICKET>.md`. One source, two destinations.

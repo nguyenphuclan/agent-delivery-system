@@ -49,6 +49,7 @@ One row per surface, each with **the exact command** that produced the number, s
 | **callers** of each method whose signature or behaviour moves | PROJ-11350: `ReasonHistoryWriter` had exactly **1** caller, which collapsed the claim that the partner plugin was out of scope |
 | **readers** of each field whose meaning moves | PROJ-11350: dropping two entries from the history renderer's simple-field list changes rendering for **every** record category at once |
 | **audit / tracker writers already on the touched save path** | PROJ-11350 escape E1: the existing `OrderUpdater.Update` already staged audit rows, so a second pass wrote duplicates |
+| **who legitimately goes over a NEW restriction** (rate limit, size limit, validation, permission) | FE loops over a create endpoint, service-to-service callers, bulk imports. PROJ-10837 checked busy screens for the general limit, not the new per-minute limit on a create endpoint that dozens of FE actions call (same shape as an earlier attachment-limit ticket) |
 
 Reference commands for a C# service (adapt the names, keep the shape):
 

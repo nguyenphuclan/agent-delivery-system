@@ -11,6 +11,25 @@ Skipped when `ticket_type ∈ {doc-only, hotfix, refactor}` or no entity has a d
 ## Phase 8 — `test-cases`
 Show count + offer edit → user picks proceed/edit. **Error-path coverage check:** every `must not / cannot / reject when` constraint in analysis must have ≥1 negative test case → otherwise G1.
 
+**Full-flow check (G-MATRIX) — the phase is not done until all three hold** (the owner did not want to miss
+cases, above all the full-flow ones):
+- `test-cases.md` has a `## Variant matrix` with 0 empty cells, and a row for every type named in
+  `requirements.md` / `requirements-enriched.md` / `requirements-analysis.md` (grep the type words; do not
+  trust the matrix's own list).
+- It has an `## E2E track` with an `[E2E]` case for every in-scope row's `E2E full flow` cell.
+- No E2E case enters through a shortcut (recalc, API seed instead of GUI, existing record).
+A failure goes back to `write-test-cases`; it is a defect, not an owner question. An out-of-scope cell needs
+a decider: `[AI-decided — <reason>]` is allowed in AI-first and is listed in the S1 print for the owner.
+
+**The shape `check_artifacts.py` reads** (whatever writes `test-cases.md` must produce it):
+- Each case is a heading `## TC-01 — <title>` or `## E2E-01 — <title>`. An E2E case carries the `[E2E]` tag.
+  A case dropped later stays as `## TC-18 — removed in v2`.
+- `## Variant matrix` holds one table. First column = the type (one row per type). One column header names
+  `E2E` (e.g. `E2E full flow`); the other columns are the variants (e.g. `date set`, `date empty`, `old data`).
+- Every cell is one of: case id(s) that have a heading in the file · `n/a: <reason>` (never in the E2E
+  column) · `out of scope: <reason> — <who decided>`. Empty, `TBD` or `<placeholder>` blocks.
+- `## E2E track` holds the E2E cases, each with its entry points in order and a `Test data on TEST` line.
+
 ## Phase 8.7 — `blast-radius`
 
 Counts the legacy surfaces the change touches, inventories the extension points that already exist, and
@@ -45,6 +64,14 @@ extension-point inventory is on disk **and empty**.
   is a router, not a label — it records what was owed. Checked at Phase 9 exit and again at G-T0.
 - **Structural-quality gate (per `code-quality-review.md` §A):** fold a `structural_quality` decision group into the plan — answer the 5 plan-time-knowable questions (layer placement · new-vs-extend-fat-method · improve-vs-mirror (do not copy a weak nearby pattern just because it exists) · duplication-of-existing-logic · base-value-impact via `_field_impact.yaml` lookup). Record under a `## Structural quality` heading in `plan.md` + `ticket-context.structural_quality_decisions[]`. These ride the confidence-gated review below — a flagged/`low`-confidence answer surfaces in the ≤5 CRITICAL items; all-clean auto-proceeds with no extra prompt. Skipped for `doc-only`, `spike`, `hotfix`; `migration-only` runs the layer-placement + base-value-impact questions.
 - Lite mode for `bugfix-small` and `hotfix`: ≤1-page plan.
+- **E2E test data on TEST — ask for the write approval once, now.** Collect the `Test data on TEST` lines of
+  every E2E case into `plan.md` § `E2E test data on TEST`: each exact record (rule name + match, record type +
+  owner, …), why it touches no real data, how it is removed. Ask the owner ONE permission question:
+  *"Approve these N writes on TEST for the E2E run?"* Record it in `ticket-context.test_env_writes:
+  {asked_at, records[], answer, answered_at}`. It does not block the build (AI-first). Not answered yet → it
+  goes in the S1 print under "Waiting for the owner". Answered no → each TEST E2E case becomes a skip that
+  needs the owner's approved reason at G-E2E, and the owner is told now, not at the end.
+  **Why now:** PROJ-11685 asked at the end, got "no other writes", and the TEST full flow became impossible.
 
 **Confidence-gated review (Q6):**
 After plan.md written, compute summary:

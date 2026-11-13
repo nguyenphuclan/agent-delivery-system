@@ -655,8 +655,8 @@ Full registry: `failure-modes.yaml`.
 | Context-expansion artifacts stale (fingerprint drift in incidents/topology) | DPS-FM-CTX-EXPANSION-STALE | re-run scan-init incidents and/or topology, then re-enter 5a' |
 | All hypothesis seeds from 5a' falsified | DPS-FM-RECURRENCE-NO-MATCH | log "false positive from incidents"; fall back to domain-only hypothesis generation |
 | `--from-briefing` path missing or briefing lacks required header / fields | DPS-FM-BRIEFING-INCOMPLETE | escalate: ask user to regenerate briefing from do-ticket Phase 6c |
-| `flow-trace` FT-2 anchor not found for any trigger path of the target flow | DPS-FM-FLOW-NO-ANCHOR | one ad-hoc grep round; if still missing → escalate with explicit "flow entry handler not in flow_index or code/domain_index" gap report |
-| `flow-trace` recommends an option that conflicts with a flow invariant (`flow_index.flows.<name>.invariants_respected`) or a domain invariant in `{project_docs}/domain/<Entity>.yaml` | DPS-FM-FLOW-INVARIANT-CONFLICT | drop that option; if no other option survives → escalate to user with the invariant cite |
+| `flow-trace` FT-2 anchor not found for any trigger path of the target flow | DPS-FM-FLOW-NO-ANCHOR | one ad-hoc grep round; if still missing → escalate with explicit "flow entry handler not in business flows code_anchors or code/domain_index" gap report |
+| `flow-trace` recommends an option that conflicts with a flow invariant (business flows `flows.<name>.invariants_respected`, file = `business_flows_ref:` in `flow_index.yaml`) or a domain invariant in `{project_docs}/domain/<Entity>.yaml` | DPS-FM-FLOW-INVARIANT-CONFLICT | drop that option; if no other option survives → escalate to user with the invariant cite |
 
 Unmatched failure → log to `investigation-telemetry.unknown_failures[]` → /learn proposes new entry after recurrence ≥3.
 

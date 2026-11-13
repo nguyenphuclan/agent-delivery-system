@@ -35,6 +35,7 @@ Phase numbers below match the canonical enumeration in `do-ticket/SKILL.md`.
 | 5 (requirements) | jira-to-requirements | `fingerprints.requirements_sha`, `jira.fetched_at` |
 | 6a (context-expansion) | do-ticket | `context_expansion.*`, `fingerprints.context_expansion_sha` |
 | 6b (analyze) | analyze-requirements | `domain_entities_in_scope`, `complexity_flags`, `speed_mode` |
+| 6c (flow-gate) | do-ticket | `flow_gate.*` |
 | 7 (invariant-scope) | invariant-check | `invariants_in_scope` |
 | 9 (plan) | implement-plan | `pattern_matches`, `resolved.touched_files` |
 | 11 (implement) | implement | `strategies_picked.implement` |
@@ -91,6 +92,17 @@ context_expansion:
   high_risk_overlap: []             # incident IDs with recurrence_risk=high AND keyword/component overlap
   file: null                        # "context-expansion.md" if produced, else null
   skipped_reason: null              # "both_artifacts_missing" | "doc_only_ticket" | "hotfix_ticket" | "dps_handoff" | null
+
+# Set by phase 6c (flow-gate, do-ticket internal) — FG-10 in phases/analyze.md.
+# check_artifacts.py pre-commit blocks when this is missing (types crud-feature, bugfix-investigated, fe-only),
+# or when the project has a business-flows file and `business_flows` does not name it.
+flow_gate:
+  decision: null                    # passthrough | routed_to_dps | bypassed | blocked | skipped | not_available
+  skipped_reason: null              # from_dps | from_briefing | prior_run | null
+  business_flows: null              # path read, relative to {project_docs} (flows/business_flows.yaml) | "absent"
+  concerns: null                    # "flows/_concerns.yaml" | "absent"
+  touched_flows: []                 # business-flow ids matched
+  risky_flows: []                   # subset: health != ok, known_gates, or complexity high
 
 # Set by analyze-requirements
 domain_entities_in_scope: []        # ["ServiceTask", "Contractor"]

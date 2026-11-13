@@ -195,37 +195,52 @@ Open questions → first settle every one that code, docs or data can answer (de
 
 Runs after 6b succeeds, before Phase 7. Goal: detect tickets that touch business flows with known complexity or recorded gates, and route to DPS for a `flow-trace` BEFORE plan, instead of waiting for FM-3X-SAME-ROOT recovery during implement (which is what burned PROJ-10869a).
 
-**Why flow-gate, not field-gate:** developers think in flows (reassignment, flagging, sync), not in fields. A ticket usually touches ONE flow that may be triggered by N fields, not the other way around. flow_index is the right granularity — ~10-30 flows per project rather than 100s of fields. Field-level cascade is already implicit in code shards + topology; flow_index adds the unit-of-business view that's missing.
+**Why flow-gate, not field-gate:** developers think in flows (reassignment, flagging, sync), not in fields. A ticket usually touches ONE flow that may be triggered by N fields, not the other way around. A business-flow registry is the right granularity — ~10-30 flows per project rather than 100s of fields. Field-level cascade is already implicit in code shards + topology; the registry adds the unit-of-business view that's missing.
+
+**Which file (two files, two owners — never merge them):**
+- **Business flows** (`BF`) = what this gate reads. Path: the `business_flows_ref:` value in `{project_docs}/flows/flow_index.yaml` (relative to `{project_docs}`). No ref → `{project_docs}/flows/business_flows.yaml` if it exists. Owner: `scan-init flows`. Schema: `flows.<id>` + `indexes.*`.
+- **Procedure index** = `flows/flow_index.yaml` `procedures:` (the `flow_*.md` how-to recipes). Owner: `/learn` D7 + hand edits. Read by Task-flow recall (SKILL.md), NOT by this gate. A legacy project whose `flow_index.yaml` itself holds `flows:` + `indexes:` is read as `BF`.
+- **Flow concerns** = `{project_docs}/flows/_concerns.yaml` (optional). Entries whose `related_flows` or `location` name a touched flow go into the briefing.
 
 **Skip conditions (do not gate, proceed to Phase 7):**
 - `--from-dps` mode → DPS already provided full context.
 - `--from-briefing` mode → this run was itself spawned by a prior gate; do not re-gate.
-- `ticket_type ∈ {doc-only, hotfix, spike}` → not enough surface area for cascade to matter.
+- `ticket_type ∉ {crud-feature, bugfix-investigated, fe-only}` → these are the only types that run `analyze` (`ticket-types.md`).
 - `state.flow_gate_decided == true` → user already decided on a prior run (don't re-prompt on resume).
+
+A skip still writes `flow_gate: {decision: skipped, skipped_reason: <from_dps|from_briefing|prior_run>}` (FG-10).
 
 **Algorithm:**
 
 ```
-FG-1  LOAD: read {project_docs}/flows/flow_index.yaml (if exists)
-      If missing → set ctx.flow_gate = "not_available" → skip to FG-4 (keyword-only fallback)
+FG-1  LOAD BF (see "Which file" above).
+      Found → read it; also read flows/_concerns.yaml if it exists.
+      Not found → print "No business flows for <project> (looked at <path>) — keyword check only"
+        → set ctx.flow_gate = "not_available" → skip to FG-4.
+      Never fall back to the procedure entries: they have no health / known_gates.
 
-FG-2  FLOW MATCH: extract candidate tokens from requirements.md + requirements-analysis.md
-      Lowercase ≥4-char tokens + UPPER_SNAKE_CASE tokens
-      Match against flow_index.indexes.by_keyword AND flow_index.indexes.by_entity (when
-      entity names appear).
-      Also match flow names directly (e.g. "reassignment" → flow_index.flows.reassignment).
+FG-2  FLOW MATCH against requirements.md + requirements-analysis.md (lowercase text):
+      - each key of BF.indexes.by_keyword, and each flow's id + aliases[] — read "-" and "_"
+        as a space, match as a whole word or phrase (gdpr, data retention, clear personal data)
+      - each key of BF.indexes.by_entity that appears as a word (Order, Role, ...)
+      - UPPER_SNAKE_CASE tokens and route / queue / table names that appear in a flow's
+        triggers, effects or code_anchors (e.g. data_retention_policy)
+      Weak matches: entity-only, or ONE keyword shared by ≥ 3 flows (e.g. "crm"). Keep a weak
+      flow only if something else also matched it; otherwise list it as "also near" in the
+      briefing, not in touched_flows.
 
       touched_flows[] = unique set of matched flow ids
       For each touched_flow:
-        Pull flow_index.flows.<id> record into scope.
+        Pull BF.flows.<id> record into scope, plus the _concerns entries for it.
 
 FG-3  RISK ASSESSMENT per touched flow:
        For each touched_flow:
          If flow.health != "ok" (i.e. "degraded" or "broken") → add to risky_flows[] with reason
          If flow.complexity == "high" → add to risky_flows[]
          If flow.known_gates[] non-empty → add to risky_flows[] + carry forward gates for briefing
+           (a gate with by_design: true is behaviour the ticket must work WITH — still carry it)
 
-FG-4  KEYWORD SIGNAL fallback (no flow_index OR no flow match):
+FG-4  KEYWORD SIGNAL fallback (no BF OR no flow match):
         grep requirements.md + requirements-analysis.md for any of:
           [update, trigger, connect, reroute, cascade, also fires, propagate,
            change triggers, flow doesn't trigger, when X changes Y should]
@@ -250,7 +265,7 @@ FG-6  SURFACE G10:
           Reason: <one sentence — e.g. "reassignment has 2 known gates blocking the 3rd-party API trigger path">
 
         Recommended: route to DPS for flow-trace BEFORE plan. DPS will:
-          - Anchor on each entry handler of the flow (from flow_index + code shards)
+          - Anchor on each entry handler of the flow (from BF code_anchors + code shards)
           - Trace each TRIGGER PATH end-to-end (NOT per field)
           - Gap-analyze: which trigger paths silently drop the signal?
           - Recommend implementation options per gap
@@ -268,7 +283,7 @@ FG-7  ON CHOICE a — Route to DPS:
           phase_before_block: analyze
           dps_briefing_path: <abs path>
           flow_gate_decided: true
-          flow_gate: routed_to_dps
+        Set ctx.flow_gate = "routed_to_dps"
         Print the exact invocation command:
           /domain-problem-solver --from-briefing=<abs path>
           (when DPS finishes, resume do-ticket via: do-ticket <TICKET_ID> --from-dps=<session-folder>)
@@ -285,6 +300,17 @@ FG-8  ON CHOICE b — Skip:
 FG-9  ON CHOICE c — Block:
         Set state.phase: blocked, blocked_reason: "user requested manual flow investigation"
         Halt.
+
+FG-10 RECORD (every path, before Phase 7 or halt) — ticket-context.yaml:
+        flow_gate:
+          decision: passthrough | routed_to_dps | bypassed | blocked | skipped | not_available
+          skipped_reason: null | from_dps | from_briefing | prior_run
+          business_flows: <BF path as read, relative to {project_docs}> | absent
+          concerns: <flows/_concerns.yaml> | absent
+          touched_flows: [<id>, ...]
+          risky_flows: [<id>, ...]
+        GATE: `check_artifacts.py <ticket_dir> pre-commit` blocks when this record is missing,
+        or when the project has a BF file and `business_flows` does not name it.
 ```
 
 **`dps-briefing.md` template** (written at FG-7):
@@ -306,22 +332,23 @@ Source repos in scope: <from ticket-context.resolved.repos>
 ### <flow_name> — <flow.description>
 - Health: <ok | degraded | broken>
 - Complexity: <low | medium | high>
-- Triggers (from flow_index):
+- Triggers (from BF):
   - <trigger.id>: <description> (channel: <api|gui|rabbitmq|scheduled>, entry: <handler at file:line>)
   - ...
 - Expected effects:
   - <effect 1>
   - <effect 2>
 - Anchor handlers:
-  - sync_entry: <from flow_index>
-  - async_entry: <from flow_index>
-  - invariant_owner: <from flow_index>
+  - sync_entry: <from BF code_anchors>
+  - async_entry: <from BF code_anchors>
+  - invariant_owner: <from BF code_anchors>
 - Related entities: <list>
 - Related flows: <list>
 - Invariants respected: <list of rule_ids>
 - Past incidents: <list of ticket ids>
 - Known gates (pre-recorded blockers):
-  - <kg.id>: <description> at <location>
+  - <kg.id>: <description> at <where> (by_design: <true|false>)
+- Open concerns (flows/_concerns.yaml): <c-id: one line, or "none">
 
 ## Keyword signals (from requirements text)
 <List matched phrases — or "none">
@@ -352,11 +379,18 @@ seeded into plan.md.
 
 ## Hard constraints
 - Do not write code.
-- Do not propose an option that conflicts with a flow invariant (flow_index.flows.<name>.invariants_respected) or a domain invariant in {project_docs}/domain/<Entity>.yaml. DPS-FM-FLOW-INVARIANT-CONFLICT applies.
+- Do not propose an option that conflicts with a flow invariant (BF `flows.<name>.invariants_respected`) or a domain invariant in {project_docs}/domain/<Entity>.yaml. DPS-FM-FLOW-INVARIANT-CONFLICT applies.
 - Cite each anchor handler with file:line.
 - Trace BY TRIGGER PATH, not by field cascade. The question is "does this trigger reach the effect?", not "what does this field do?"
 ```
 
 **Why 6c is between analyze and Phase 7 (not after plan):** the flow map informs WHAT to plan. After-plan routing means re-doing the plan once DPS returns. Before-plan routing means plan is written ONCE, with full flow context.
+
+**End of Phase 6 — knowledge checkpoint K1 (before Phase 7).** Docs and code have now been read, so every
+open business question is known. Run K1 from `../promote-knowledge.md`: sort each open question —
+`gap` (durable business fact the docs and code lack), `confirm` (a grep, read or doc answers it → settle,
+do not ask), `decision` (the owner chooses for this ticket → normal). Write each `gap` that code answers
+into the docs now. Send the `gap` questions only a human can answer to the owner **now**, in one message,
+each with a default — before test-cases and plan build on a guess. Log the K1 line. Also after a DPS resume.
 
 **Resume from `phase: awaiting_dps`:** when user invokes `do-ticket <TICKET_ID> --from-dps=<session>`, Phase 0 detects the flag, loads findings (including new flow_map + gaps + decisions), advances state to `phase: analyze` (marked complete), proceeds to Phase 7. The plan phase reads `ctx.flow_findings.*` as primary input alongside `requirements-analysis.md`.

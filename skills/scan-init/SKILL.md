@@ -36,7 +36,7 @@ are named in the protocol and are unaffected by this rule.
 | `scan-init conventions` | `conventions/git.yaml`, `conventions/ci.yaml`, `conventions/security.yaml` | 1 (auto) |
 | `scan-init incidents` | `incidents/incidents.yaml`, `incidents/_concerns.yaml` | 1 (auto) — Jira-sourced |
 | `scan-init topology` | `topology/topology.yaml`, `topology/_concerns.yaml` | 1 (auto) — cross-repo + optional infra |
-| `scan-init flows` | `flows/flow_index.yaml`, `flows/_concerns.yaml` | 2 (scaffold + user confirm) — business flows (rerouting, indication, sync, etc.) with triggers × effects × known_gates. Consumed by do-ticket Phase 6c flow-gate. |
+| `scan-init flows` | `flows/business_flows.yaml`, `flows/_concerns.yaml` (+ the `business_flows_ref:` line in `flows/flow_index.yaml`) | 2 (scaffold + user confirm) — business flows (reassignment, flagging, sync, etc.) with triggers × effects × known_gates. Consumed by do-ticket Phase 6c flow-gate and DPS flow-trace. `_index.yaml` key: `business_flows`. |
 | `scan-init all` | Runs all sub-commands in order above | — |
 | `scan-init verify` | Coverage + schema validation across all artifact groups | 1 (auto) |
 | `scan-init verify --establish-baseline` | After verify passes 100% → write `baseline:` block to `_index.yaml` | 1 (auto, gated by verify pass) |
@@ -78,7 +78,7 @@ Invoke with `--force` to skip the stale check and run unconditionally (used by `
 | conventions | 30 | Conventions very stable |
 | incidents | 14 | Bugs are resolved on weekly cadence; daily refresh is overkill |
 | topology | 10 | Infra changes slowly, code changes weekly — compromise. Cross-links incidents on every refresh. |
-| flows | 30 | Business flows are very stable (rerouting, indication, sync don't change shape often). Re-scan when a major new feature lands or a flow gains a new trigger channel. |
+| flows (`business_flows`) | 30 | Business flows are very stable (reassignment, flagging, sync don't change shape often). Re-scan when a major new feature lands or a flow gains a new trigger channel. |
 
 For every sub-command (except `all`):
 
@@ -122,6 +122,15 @@ Each sub-command has its own state file:
 | flows | `flows/flow_scan_state.json` |
 
 Resume rule: if state file exists with `status: in_progress` → resume from `last_position`. If `status: done` → skip (already fresh, confirmed by stale check).
+
+### Two honesty rules for every sub-command (2026-08-29)
+
+- **Say which repos you searched.** On one project the configured scope was 9 repos while 32 were on
+  disk. Four wrong topology flags came from consumers in repos outside the scope. "Not found in all
+  repos" must mean the repos on disk, or the claim must name the subset.
+- **Count before you write a count.** Header totals were copied by hand from the last run and drifted:
+  incidents said 93 for 92 entries, db said 123 for 124, topology used one id twice. Count the file;
+  never copy the old header's number.
 
 ---
 
@@ -1624,10 +1633,14 @@ Builds a flow-centric registry of business flows for the project — the unit of
 **Output**:
 ```
 public-project-docs/<project>/flows/
-  flow_index.yaml                  ← per-flow registry: triggers × effects × anchors × health × known_gates
+  business_flows.yaml              ← per-flow registry: triggers × effects × anchors × health × known_gates (THIS sub-command owns it)
   _concerns.yaml                   ← agent observations during scan
   flow_scan_state.json
+  flow_index.yaml                  ← NOT owned here: index of the flow_*.md how-to recipes (`procedures:`).
+                                     This sub-command only keeps its `business_flows_ref:` line pointing at business_flows.yaml.
 ```
+
+**Two files, two owners — never merge them.** Readers (do-ticket 6c, DPS flow-trace, enrich-requirements) find the business flows through `flow_index.yaml` `business_flows_ref:`. A legacy project whose `flow_index.yaml` holds `flows:` itself: move those flows to `business_flows.yaml` on the next run (user confirms), leave `procedures:` in place, add the ref.
 
 ### Sub-command signature
 
@@ -1652,7 +1665,7 @@ scan-init flows [--flow=<id>] [--force]
 
 This is **NOT a full code scan** — flows are inherently business-level. Mix three sources to propose flows, then user confirms:
 
-1. **Topology edges** (async flows): every RabbitMQ queue with stable publishers + consumers AND a recognizable business name (e.g. `Dw*`, `Sync*`, `Indication*`, `SendIn*`) → candidate flow.
+1. **Topology edges** (async flows): every RabbitMQ queue with stable publishers + consumers AND a recognizable business name (e.g. `Sync*`, `Send*`, `*Routing*`) → candidate flow.
 2. **Domain relationships**: `domain/_relationships.yaml` chains (e.g. `CHAIN-INC-1`, `CHAIN-SVC-1`) → candidate flow.
 3. **Past incidents grouped by keyword**: incidents with shared `similar_pattern_keywords` (≥3 incidents) → candidate flow.
 4. **Code clusters**: controllers with naming pattern `*FlowController` → confirmed flows.
@@ -1663,14 +1676,15 @@ For each candidate, propose to user with one-line description + detected anchors
 
 ```
 FL-1  STALE CHECK (skipped when --force)
-      Read _index.yaml → artifacts.flows.fingerprint + last_updated
+      Read _index.yaml → artifacts.business_flows.fingerprint + last_updated
+      (artifacts.flows is the procedure index — not this sub-command's entry)
       If matches AND last_updated < 30 days → emit "FRESH, skip" and exit
 
 FL-2  PRECONDITION CHECK
       Verify code + domain artifacts. Fail per "Required preconditions" table.
 
 FL-3  CANDIDATE DISCOVERY
-      Source 1: glob {project_docs}/topology/queues[] — for each queue with named pubsub pair, derive candidate flow id from queue name (e.g. SYNC_AC_INFO_JOB → ac-info-sync)
+      Source 1: glob {project_docs}/topology/queues[] — for each queue with named pubsub pair, derive candidate flow id from queue name (e.g. SYNC_ORDER_STATUS_JOB → order-status-sync)
       Source 2: read {project_docs}/domain/_relationships.yaml — each chain → candidate flow
       Source 3: scan {project_docs}/incidents/incidents.yaml.indexes.by_keyword for keywords appearing in ≥3 incidents → candidate
       Source 4: grep code shards for "*FlowController" classes → candidate (these are confirmed flows by naming convention)
@@ -1678,10 +1692,10 @@ FL-3  CANDIDATE DISCOVERY
       Deduplicate by candidate id. Compute candidate.source_signals list.
 
 FL-4  USER CONFIRMATION (Tier 2 — required for new flows)
-      For each candidate not yet in flow_index.yaml:
+      For each candidate not yet in business_flows.yaml:
         Show: id, one-line description (derived from source signals), source_signals, suggested anchor handlers
         Ask: "Confirm / Rename / Skip / Edit description"
-      For each existing flow in flow_index.yaml:
+      For each existing flow in business_flows.yaml:
         If source signals changed (new trigger detected, new incident linked, health changed):
           Show diff, ask user to acknowledge/edit
 
@@ -1728,7 +1742,7 @@ FL-5  PER-FLOW DEEP FILL
           - medium: ≥2 triggers OR ≥2 related_flows OR exactly 2 repos
           - low: otherwise
         
-        FL-5.9  WRITE flow entry to flow_index.yaml (incremental)
+        FL-5.9  WRITE flow entry to business_flows.yaml (incremental)
 
 FL-6  REBUILD INDEXES (at end of all flows)
       indexes.by_keyword: map keyword (from flow id + aliases) → [flow_ids]
@@ -1736,16 +1750,24 @@ FL-6  REBUILD INDEXES (at end of all flows)
       indexes.by_health: { ok: [...], degraded: [...], broken: [...] }
       indexes.high_complexity: [flow_ids with complexity == high]
 
-FL-7  WRITE _index.yaml update
-      artifacts.flows: { path, last_updated: now, fingerprint, status: fresh,
-                          flow_count: N, degraded_count: D, broken_count: B,
-                          required_by: [], optional_for: [6, 9] }
+FL-7  WRITE _index.yaml update + the pointer
+      artifacts.business_flows: { path: flows/business_flows.yaml, concerns: flows/_concerns.yaml,
+                          last_updated: now, fingerprint, status: fresh,
+                          flow_count: N, degraded_count: D, broken_count: B, known_gate_count: G,
+                          required_by: [], optional_for: [6, 9] }   # counts counted from the written file
+      Leave artifacts.flows (procedure index) as it is.
+      flows/flow_index.yaml: make sure it has `business_flows_ref: flows/business_flows.yaml`.
+        Missing file → create it with `kind: procedure_library`, `procedures: {}`, `total: 0` + the ref.
+        Never write flows / indexes / procedures into it.
 
-FL-8  LIVE-SYNC + MARK DONE
-      doc-manager live-sync flows/flow_index.yaml edit|create
+FL-8  LIVE-SYNC + GATE + MARK DONE
+      doc-manager live-sync flows/business_flows.yaml edit|create
       doc-manager live-sync flows/_concerns.yaml edit|create
-      python _shared/tools/check_flow_registries.py {project_docs}   # flow files vs flow_index.yaml vs knowledge.md FLOWS table; exit 1 = drift → fix before done, 2 = cannot measure (say so)
-      scan_state.json.status = done
+      GATE: python _shared/tools/check_flow_registries.py {project_docs}
+        (flow files vs flow_index.yaml vs knowledge.md FLOWS table, AND the business-flow registry)
+        exit 1 → fix the drift it names (dead ref, index id that is not a flow, count mismatch,
+        concern naming an unknown flow), re-run; exit 2 → report "not measured", never "done".
+      scan_state.json.status = done only on exit 0
 
 FL-9  REPORT
       Print summary:
@@ -1755,10 +1777,13 @@ FL-9  REPORT
         - Known gates pre-recorded: G
 ```
 
-### flow_index.yaml schema
+### business_flows.yaml schema
+
+Living doc → follow `_shared/doc-durability-protocol.md`: write anchors as `{ repo, surface }` (route, queue, table, workflow name), not class + file:line. The `class` / `location` keys in the example below are the older form; readers accept both. Optional per gate: `by_design` (true = intended, a ticket must work with it).
 
 ```yaml
-# Auto-generated by scan-init v2.x.x — flows sub-command
+# Auto-generated by scan-init v2.x.x — flows sub-command (file: flows/business_flows.yaml)
+kind: business_flows
 # Last updated: <ISO>
 # Project: <name>
 # Total flows: <N>
@@ -1927,7 +1952,7 @@ Standard schema. Dominant types:
 ```yaml
 - id: c-<n>
   type: knowledge-gap
-  location: flows/flow_index.yaml#flows.<id>
+  location: flows/business_flows.yaml#flows.<id>
   description: "Flow <id> has trigger t<n> with entry_handler: TBD — DPS flow-trace will need to identify it at ticket time"
   severity: low
   confidence: confirmed
@@ -1938,7 +1963,7 @@ Standard schema. Dominant types:
 ```yaml
 - id: c-<n>
   type: concern
-  location: flows/flow_index.yaml#flows.<id>.known_gates
+  location: flows/business_flows.yaml#flows.<id>.known_gates
   description: "Flow <id> has known gate <kg-id> blocking trigger <t-id>. Any ticket that touches this trigger MUST address the gate (otherwise repeats PROJ-XXXXX pattern)."
   severity: high
   confidence: confirmed
@@ -1950,7 +1975,7 @@ Standard schema. Dominant types:
 ```yaml
 - id: c-<n>
   type: concern
-  location: flows/flow_index.yaml
+  location: flows/business_flows.yaml
   description: "<N> flows share mechanism 'silent-overwrite at inbound router' — likely a single architectural fix would resolve all"
   severity: medium
   confidence: likely
@@ -1965,7 +1990,7 @@ Standard schema. Dominant types:
 | domain artifact missing | Error + exit. Flow scan needs entity registry. |
 | topology missing | Run anyway; topology source becomes empty; rely on other 3 sources |
 | incidents missing | Run anyway; past_incidents stay empty; health defaults to ok unless other signals say otherwise |
-| User skips a candidate | Don't write to flow_index. Log to scan_state.user_skipped. Next run will re-propose. |
+| User skips a candidate | Don't write to business_flows.yaml. Log to scan_state.user_skipped. Next run will re-propose. |
 | Flow has trigger with anchor=TBD | Allowed (degraded knowledge). Write a knowledge-gap concern. DPS will derive at ticket time. |
 | Two candidates dedupe to same id by accident | List both source_signals; user picks the canonical name. |
 | Flow with health=broken (currently doesn't work at all) | Allowed — useful for ticket-time gating to warn user up front. |

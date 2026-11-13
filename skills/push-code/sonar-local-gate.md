@@ -267,3 +267,6 @@ SonarQube check passed — confirming the local red was the false one.
 - **New-code = diff** here, which matches CI's PR new-code when the PR's New Code setting is "reference branch = master". If a project uses version-based New Code, the local (diff) number is still the right thing to gate a *change* on; CI's number converges once the PR targets master.
 - **SonarC# authoring gotchas** — `S125` (prose comments that look like code — avoid `;`/`()` in comments), `S3358` (nested ternary), `S3776` (cognitive complexity) fire most; pre-empt them in the final-review step so the parse comes back clean.
 - **Coverage exclusions** from §2 are honored by the scanner during collection; the coverage parser only looks at production diff lines, so excluded infra files never enter the denominator.
+- **A one-line edit inside a legacy method with an old `S3776` counts as new code** ("member body changed").
+  If the edit is not needed, restore the base branch's text for that line; that cleared it. Refactoring the
+  method instead adds uncovered new lines (2026-10-21, PROJ-7028).

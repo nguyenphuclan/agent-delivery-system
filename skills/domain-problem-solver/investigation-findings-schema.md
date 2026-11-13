@@ -200,10 +200,12 @@ flows_in_scope: [<flow ids from briefing>]
 
 Produced per target flow. One block per flow. Trace is BY TRIGGER PATH, not by field.
 
-**Flow definition** (from {project_docs}/flows/flow_index.yaml):
-- Description: <copied from flow_index.flows.<name>.description>
-- Expected effect: <copied from flow_index.flows.<name>.effects>
-- Invariant owner: <copied from flow_index.flows.<name>.code_anchors.invariant_owner>
+**Flow definition** (from <business flows file read — path from flow_index.yaml `business_flows_ref:`, e.g. flows/business_flows.yaml; or "none — built from input + code">):
+- Description: <copied from flows.<name>.description>
+- Expected effect: <copied from flows.<name>.effects>
+- Invariant owner: <copied from flows.<name>.code_anchors.invariant_owner>
+- Known gates: <flows.<name>.known_gates — id, mechanism, by_design; or "none">
+- Open concerns: <flows/_concerns.yaml entries for this flow; or "none">
 
 ### Trigger path: <trigger.id> — <trigger.description>
 

@@ -68,9 +68,12 @@ before writing — it is the authority on voice, not this file.
    person names it: *"the Work Order detail screen, Contractor tab"*. Never a component path.
 6. **The code itself**, last and only where needed to check a claim.
 
-> `{output}/flows/` is a library of **developer procedures**, not business flows. Do not cite
-> a `flow_*.md` as "the business flow" unless your project really keeps business flows there.
-> Describe the flow from the ticket + code, and say it is your reading.
+> `{output}/flows/flow_*.md` are **developer procedures**, not business flows. Do not cite one as
+> "the business flow". The business flows live in the file named by `business_flows_ref:` in
+> `{output}/flows/flow_index.yaml` (default: `flows/business_flows.yaml`): match the ticket by
+> `indexes.by_keyword`, flow id or `aliases`, and use its description, effects and `known_gates`
+> as plain-language material. No match, or no such file → describe the flow from the ticket +
+> code, and say it is your reading.
 
 ## Steps
 

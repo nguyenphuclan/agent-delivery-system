@@ -77,7 +77,7 @@ Examples:
 
 **Auto speed-mode:** If `analyze-requirements` scores requirement clarity < 60/100 (vague verbs, no AC, "just make it work" signals), AI proposes activating self-detailing automatically. User can accept or override.
 
-**Flow gate auto-routing:** Phase 6c (after analyze) checks `{project_docs}/flows/flow_index.yaml` for business flows touched by this ticket (matched by flow keywords + entity references). If a touched flow has `health != ok` OR `known_gates[]` → offers proactive DPS routing BEFORE plan (see Phase 6 step 6c in `phases/analyze.md`). Replaces the old "wait for FM-3X-SAME-ROOT during implement" recovery pattern.
+**Flow gate auto-routing:** Phase 6c (after analyze) checks the project's **business flows** — the file named by `business_flows_ref:` in `{project_docs}/flows/flow_index.yaml` (default: `flows/business_flows.yaml`) — plus `flows/_concerns.yaml`, for flows touched by this ticket (matched by flow keywords, aliases + entity references). No business-flow file → it says so and runs the keyword check only. If a touched flow has `health != ok` OR `known_gates[]` → offers proactive DPS routing BEFORE plan (see Phase 6 step 6c in `phases/analyze.md`). Replaces the old "wait for FM-3X-SAME-ROOT during implement" recovery pattern.
 
 **Worktree trigger detection:** also activate `--worktree` when the user says "separate worktree", "in parallel", "parallel", "isolated stack".
 
@@ -115,7 +115,7 @@ worktree_paths: {}            # service-keyed map: { shared_lib, api_service, ap
 worktree_ports: {}            # service-keyed map (same keys as worktree_paths minus shared_lib): effective port = main_port + offset
 # Flow-gate (Phase 6c) state — written when gate fires:
 dps_briefing_path: null       # abs path to dps-briefing.md (when phase = awaiting_dps)
-flow_gate_decided: false      # true once user has chosen route/skip/block on this run
+flow_gate_decided: false      # true once user has chosen route/skip/block on this run (the full record is ticket-context.yaml flow_gate.*)
 last_updated: 2026-04-12T10:00:00
 ```
 
@@ -145,7 +145,7 @@ Reading order = execution order. The numbers below are the **canonical sequence 
 | 3 | `resolve-context` | Populate `ticket-context.yaml` with resolved paths + fingerprints |
 | 4 | `rebase-check` | (Resume only) Verify branch is not stale vs base |
 
-**Task-flow recall (after phase 3, before `plan`):** Once `ticket_type` + requirement tokens are known, read `{project_docs}/knowledge.md` `## FLOWS` table and match by keywords. This is the **task-sequence flow** track (`flows/flow_*.md` — verified "fastest sequence" recipes written by `/learn` D7), DISTINCT from the business-flow `flow_index.yaml` consumed by the 6c flow-gate. On a match: load the flow file and follow it instead of re-deriving plan/implement from scratch — its `Known pitfalls avoided` + `Known external failure modes` pre-empt the leaks that recur otherwise. If a flow is recalled and the session completes verified (`/learn` Step-1a = "yes"), `/learn` D7 increments that flow's `verified_runs` + bumps confidence — this is how a flow climbs medium → high → proven. Skipping recall is why flows stall at `verified_runs: 1`.
+**Task-flow recall (after phase 3, before `plan`):** Once `ticket_type` + requirement tokens are known, read `{project_docs}/knowledge.md` `## FLOWS` table and match by keywords. This is the **task-sequence flow** track (`flows/flow_*.md` — verified "fastest sequence" recipes written by `/learn` D7), DISTINCT from the business flows (`business_flows_ref:` → `business_flows.yaml`) consumed by the 6c flow-gate. `flow_index.yaml` `procedures:` indexes these recipe files; never merge the two. On a match: load the flow file and follow it instead of re-deriving plan/implement from scratch — its `Known pitfalls avoided` + `Known external failure modes` pre-empt the leaks that recur otherwise. If a flow is recalled and the session completes verified (`/learn` Step-1a = "yes"), `/learn` D7 increments that flow's `verified_runs` + bumps confidence — this is how a flow climbs medium → high → proven. Skipping recall is why flows stall at `verified_runs: 1`.
 
 **Work phases (canonical crud-feature order — others skip per `ticket-types.md`):**
 
@@ -169,7 +169,10 @@ Reading order = execution order. The numbers below are the **canonical sequence 
 | 13.5 | `code-quality-review` | do-ticket internal (diff-scoped quality gate — see `code-quality-review.md`) |
 | 14 | `env-gate` | do-ticket internal (services-running check) |
 | 15 | `api-test` | your live-API test skill |
-| 16 | `commit` | do-ticket internal (16a clarification recheck → 16b commit prompt) |
+| 15.1 | `e2e` | do-ticket internal — runs the E2E track of `test-cases.md` locally now, and on TEST once deployed (Phase 23). Results with the entry point used in `test-evidence/e2e/e2e-results.md`; a shortcut = PARTIAL, never PASS — `phases/verify.md` |
+| **GATE** | **G-E2E** | **Blocks 21 `pr-ready` and 23 `done`** until both hold: (1) every E2E case is PASS, or a skip the owner approved, with its reason; (2) the variant matrix in `test-cases.md` has no empty cell. At 23 this also needs the TEST run. |
+| **GATE** | **G-TC** | **Blocks 16 `commit`** until every TC in `test-cases.md` has a row in `test-evidence/tc-results.md` (E2E cases: in `e2e/e2e-results.md`), and no row is FAIL, PARTIAL, stale (a code commit after the row's `Commit`) or a SKIP without the owner's approved reason. Track B, see § Two test tracks. |
+| 16 | `commit` | do-ticket internal (16-0 knowledge checkpoint K3 → docs, see `promote-knowledge.md` → 16a clarification recheck → 16b commit prompt) |
 | 17 | `pre-push` | **push-code skill** (standard pre-push gate — final diff review + local analyzer run + 2 new-code gates (0 rule issues, coverage ≥ 80%) + push). Replaces the old internal secrets-scan-only pre-push. |
 | 18 | `ci-check` | do-ticket internal — Sonar rules + new-code coverage already gated locally at 17, but CI remains the ONLY check for duplication-on-new-code, CONDITION coverage + the server quality gate. |
 | 19 | `invariant-encoded` | invariant-check (--post) |
@@ -184,9 +187,19 @@ Reading order = execution order. The numbers below are the **canonical sequence 
 - `regression` (12) must complete before `commit` (16)
 - `code-quality-review` (13.5) must complete (or be skipped per type) before `commit` (16); any `must-fix` open → loop to `implement` (11), not proceed
 - `api-test` (15) must complete or be explicitly skipped before `commit` (16)
+- **G-E2E** (row above) holds before `pr-ready` (21) and `done` (23). A PARTIAL or an unapproved skip never
+  passes it. The owner's yes for the TEST data writes is asked once, at `plan` (9).
+- **G-TC** (row above) holds before `commit` (16). `check_artifacts.py … pre-commit` checks it.
 - `triage` (9.7) runs after `plan` (9) — it prices the plan, so it cannot precede it — and before `unit-tests` (10), i.e. before the human spends attention on any downstream gate. It is **advisory only**: it never gates, never skips, never relaxes another phase.
 - `commit` (16) must complete before `pre-push` (17)
 - `pr-ready` (21) requires explicit user `y/n` before `gh pr create`
+
+**Two test tracks.** Both can run; they are not the same thing.
+- **Track B — run every case in `test-cases.md`** (unit, integration where earned, API/DB, GUI, E2E). This is
+  the bug gate: it stops bugs reaching prod. Results: `test-evidence/tc-results.md` + `e2e/e2e-results.md`. Gate G-TC (+ G-E2E).
+- **Track A — AC proof**, if your team asks for one (e.g. a screenshot per acceptance criterion on the
+  ticket). It shows QC and the team that the process was followed. Enough proof is enough.
+- A never stands in for B. An AC image may reuse a B run; a B row never points to an AC image.
 
 When this file references "phase N" it means the table above. When it references a phase by name (e.g. `commit phase`), the same. Numbered sub-steps inside a phase use letters: `16a`, `16b`.
 
@@ -203,7 +216,7 @@ enters that part. Never read the files of later parts ahead of time**, and never
 | analyze | 5 `requirements`, 5.5 `enrich`, 6 `analyze` (6a, 6b, 6c flow gate) | `phases/analyze.md` |
 | design | 7 `invariant-scope`, 8 `test-cases`, 8.7 `blast-radius`, 9 `plan`, 9.5 `fe-impact-check`, 9.7 `triage`, 9.8 `legacy-contract` | `phases/design.md` |
 | build | 10 `unit-tests`, 11 `implement`, 12 `regression`, 12.7 `contract-recheck`, 13 `completeness-audit`, 13.5 `code-quality-review` | `phases/build.md` |
-| verify | 14 `env-gate`, 15 `api-test`, 16 `commit`, 17 `pre-push` | `phases/verify.md` |
+| verify | 14 `env-gate`, 15 `api-test`, 15.1 `e2e`, 16 `commit`, 17 `pre-push` | `phases/verify.md` |
 | ship | 18 `ci-check` … 23 `done` | `phases/ship.md` |
 | any | an inserted ad-hoc phase | `phases/adhoc.md` |
 
@@ -270,6 +283,12 @@ For each phase in the type's phase list (from `ticket-types.md`):
 6. **Session boundary:** the phase just saved is a fixed boundary in § Sessions, or the size check there fires
    → end the session there.
 
+7. **Knowledge checkpoint — only at these points** (`promote-knowledge.md`): **K1** after `analyze` (6),
+   **K3** at step 16-0 of `commit`, **K4** at `done`, **STOP** before any session end or `phase: blocked`,
+   and **K2** the same turn the owner answers a durable business question. Each one sorts the business
+   questions (`gap` / `confirm` / `decision`), writes every new `knowledge_miss` into the docs on the spot,
+   and tells the owner at once when only a human can fill a gap. Not after other phases, not per action.
+
 ---
 
 ## Sessions — end the session at fixed points
@@ -293,6 +312,9 @@ apply. 400k is a start value: a fresh session already holds 90–200k, and long 
 measured at a 555–573k median. Tune it from your own runs.
 
 **At a boundary — the user opens the new session; you make it ready:**
+0. Run the **STOP** knowledge checkpoint (`promote-knowledge.md`): write every business fact learned since
+   the last checkpoint into the docs now, and put any `gap` question that needs the owner into the print below.
+   The next session does not have this context.
 1. State is already saved by the phase loop. Write `{ticket_dir}/RESUME.md` for the next session — only what
    lives nowhere else on disk (what `plan.md` or `ticket-context.decisions[]` holds is not copied):
    - **Next** — the phase that runs next and its first concrete step.
@@ -423,6 +445,7 @@ Every phase write appends to `{output}/tickets/<TICKET_ID>/run-telemetry.yaml`. 
 - Session boundaries (`session_boundaries[]`)
 - Update cycles, review rounds
 - `unknown_failures[]` — error signatures not in registry (≥3 occurrences → /learn proposes new FM-XX)
+- `knowledge_misses[]` — system facts the run lacked + `docs_had_it: no|yes-not-found|wrong` (tells a docs content gap from a structure gap; required, `[]` allowed)
 
 **Cost** is not in telemetry. Optional: run `python _shared/tools/ticket_cost.py <TICKET_ID>` (or `--list`)
 by hand. It reads the Claude Code transcripts on disk after the fact, makes no model call, and splits $ by
@@ -475,3 +498,23 @@ part and by main session vs sub-agent. Phase 23 may run it once per ticket.
 - **Long sessions need RESUME.md:** when a ticket spans multiple sessions (or session approaches context limits), write `RESUME.md` to the ticket folder capturing the **audit trail of design decisions** — not just status. Without it, next-session-Claude has to re-derive every choice. `ticket-state.yaml` captures workflow position; `RESUME.md` captures *why this design*. § Sessions sets the fixed points. *(2026-05-05)*
 - **Local DB queries via MCP `postgres-local` are valuable for design.** During analyze/plan phases, fetching live config rows (e.g. existing dynamic rule JSON) instantly resolves design questions that would take much longer to derive from code alone. Use sparingly (READ-ONLY, LIMIT 10) but don't shy away from a targeted query. *(2026-05-05)*
 - **Signature-refactor test sweep (before declaring green):** when a method's signature changes (param type or an added param), the "update broken tests" step must cover TWO blind spots a direct call-site grep misses, or CI goes red after a local "green": (1) **reflection / string-name callers** — grep the method NAME as a string literal (e.g. a private-method invoke helper passing the old argument); these fail at RUNTIME (a type-conversion error), not at compile, so a build won't catch them. (2) **DB-integration test classes** (e.g. Testcontainers-backed `[TestCategory]` DB tests) that a local unit-only `--filter` run skips — they run only in CI. If your stack can spin the DB up locally, run the impacted DB classes before declaring green (it takes seconds). *(2026-06-18)*
+- **A guard that looks like the bug can be load-bearing.** Before you delete it, run the full related
+  suite and read which tests fail. That set shows what the guard really protects (PROJ-11033: a date
+  check also told entering a paused state apart from leaving it). If the fix breaks a passing test,
+  do not edit the test to make it pass. Tests encode the spec: show the owner the trade-off and let
+  them decide. *(learned 2026-06-05)*
+- **One bad pathspec aborts the whole `git add`.** If one listed path was already removed with `git rm`,
+  git stages NONE of the paths. Never list a `git rm`'d path again. Always run
+  `git diff --cached --name-only` and compare it with your intent BEFORE `git commit`.
+  *(learned 2026-07-06, PROJ-11172: a broken commit was pushed)*
+- **Before you build a new bulk recompute / backfill / data-fix endpoint, look for a scheduled job that
+  already does it** (a workflow engine job, cron), and check if it can run on demand. PROJ-11172 built a
+  fix endpoint and then deleted it: an existing daily job already did more. *(learned 2026-07-10)*
+- **A branch cut while you stand on another ticket's branch carries that ticket's commits.** Cut from a
+  fresh base: `git checkout -b <TICKET> origin/<main>`. Before you open the PR, check that
+  `git log origin/<main>..HEAD` shows only this ticket's commits. *(learned 2026-08-28, PROJ-9449:
+  the reviewer blocked on another ticket's commit)*
+- **`_shared/check-scope.py diff <repo> <base>` measures committed work only (`<base>...HEAD`).** On an
+  uncommitted build (a split run where commit comes in a later part) it says BLOCKED / 0 files. Work
+  around it: `check-scope.py files $(git diff --name-only HEAD)` plus `git diff --shortstat HEAD`.
+  Idea for later: a `--worktree` flag. *(learned 2026-10-20, PROJ-7028)*

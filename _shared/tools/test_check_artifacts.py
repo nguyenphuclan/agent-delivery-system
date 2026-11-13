@@ -3,14 +3,18 @@ pre-commit manifest.
 
 Run: python test_check_artifacts.py   (exit 0 = all passed)
 """
+import atexit
 import contextlib
 import io
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import check_artifacts  # noqa: E402
 from check_artifacts import _drop_excluded, main, scope_of  # noqa: E402
 
 
@@ -63,6 +67,102 @@ class ScopeOfTests(unittest.TestCase):
         self.assertFalse(ok, evidence)
 
 
+# G-MATRIX + G-E2E (PROJ-11685). A crud-feature ticket owes both at pre-commit / pre-push / pr / done,
+# so every passing fixture below carries this filled set.
+TEST_CASES_OK = """# Test cases
+
+## Variant matrix
+
+| Type | E2E full flow | due date set | due date empty | old data |
+|------|---------------|--------------|----------------|----------|
+| standard | E2E-01 | TC-01 | TC-02 | TC-03 |
+| express | E2E-02 | TC-01 | n/a: express has no due date | out of scope: no stored rows yet — owner, 2026-11-11 |
+| bulk | out of scope: not in this sprint — the PO | TC-01 | TC-02 | n/a: no old data |
+
+Types found in: requirements.md:12. Empty cells: 0.
+
+---
+
+## E2E track
+
+## E2E-01 — configure rule, create order, read window — standard
+**Tags:** [E2E] · **Priority:** High · **Covers:** AC-1
+
+```bash
+# a comment in a fence is not a heading
+curl -s http://127.0.0.1/api
+```
+
+## E2E-02 — configure rule, create order, read window — express
+**Tags:** [E2E] · **Covers:** AC-2
+
+---
+
+## TC-01 — happy path
+**Tags:** [API]
+
+## TC-02 — empty date
+**Tags:** [API]
+
+## TC-03 — old data
+**Tags:** [DB]
+"""
+E2E_HEAD = "| Case | Type | Env | Entry points used | Result | Evidence |\n|---|---|---|---|---|---|\n"
+E2E_LOCAL_OK = ("| E2E-01 | standard | local | admin GUI → create form → DB | PASS | `e2e/E2E-01-local/` |\n"
+                "| E2E-02 | express | local | admin GUI → create form → DB | PASS | `e2e/E2E-02-local/` |\n")
+E2E_TEST_OK = ("| E2E-01 | standard | test | admin GUI → create form → DB | PASS | `e2e/E2E-01-test/` |\n"
+               "| E2E-02 | express | test | — | SKIP — not deployed this sprint — approved by Sam, 2026-11-11 | — |\n")
+
+
+def _git(repo: Path, *args: str) -> str:
+    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True,
+                          text=True).stdout.strip()
+
+
+def make_repo(root: Path, name: str = "demo-repo") -> tuple[Path, str]:
+    """A git repo with one code commit; returns (path, sha). The stale check finds it through
+    ticket-state worktree_paths."""
+    d = root / name
+    d.mkdir(parents=True)
+    _git(d, "init", "-q")
+    for k, v in (("user.email", "t@t"), ("user.name", "t"), ("commit.gpgsign", "false")):
+        _git(d, "config", k, v)
+    (d / "app.cs").write_text("v1\n", encoding="utf-8")
+    _git(d, "add", ".")
+    _git(d, "commit", "-q", "-m", "v1")
+    return d, _git(d, "rev-parse", "HEAD")
+
+
+_DEMO_ROOT = Path(tempfile.mkdtemp(prefix="tc-demo-"))
+atexit.register(shutil.rmtree, _DEMO_ROOT, True)
+DEMO_REPO, DEMO_SHA = make_repo(_DEMO_ROOT)
+DEMO = f"`demo-repo@{DEMO_SHA[:9]}`"
+STATE_DEMO = f"worktree_paths:\n  demo-repo: '{DEMO_REPO.as_posix()}'\n"
+
+# G-TC (Track B): one row per non-E2E case of TEST_CASES_OK. Each PASS names the code it ran on.
+TC_HEAD = "| TC | Tag | How it ran | Env | Commit | Result |\n|---|---|---|---|---|---|\n"
+TC_ROWS_OK = (f"| TC-01 | API | `tc01-create/` (gateway 5002) | local | {DEMO} | PASS |\n"
+              f"| TC-02 | API | `tc02-empty/` | local | {DEMO} | PASS |\n"
+              f"| TC-03 | DB | `WindowDbTests.OldRow_KeepsNull` (api-task run, 2 passed) | local | {DEMO} | PASS |\n")
+E2E_OK = {
+    "test-cases.md": TEST_CASES_OK,
+    "test-evidence/e2e/e2e-results.md": "# E2E results\n\n" + E2E_HEAD + E2E_LOCAL_OK,
+    "test-evidence/e2e/E2E-01-local/q.txt": "rows: 1\n",
+    "test-evidence/e2e/E2E-02-local/q.txt": "rows: 1\n",
+    "test-evidence/tc-results.md": "# TC results\n\n" + TC_HEAD + TC_ROWS_OK,
+    "ticket-state.yaml": STATE_DEMO,
+    "test-evidence/tc01-create/02_response.txt": "Expected: 200\nObserved: 200\n",
+    "test-evidence/tc02-empty/02_response.txt": "Expected: 200\nObserved: 200\n",
+}
+E2E_DONE_OK = dict(E2E_OK, **{
+    "test-evidence/e2e/e2e-results.md": "# E2E results\n\n" + E2E_HEAD + E2E_LOCAL_OK + E2E_TEST_OK,
+    "test-evidence/e2e/E2E-01-test/q.txt": "rows: 1\n",
+})
+
+TELEMETRY = ("ticket_type: crud-feature\nphases:\n  - {phase: plan}\n"
+             "knowledge_checkpoints: [{id: K1}, {id: K3}, {id: K4}]\nknowledge_misses: []\n")
+
+
 class PreCommitGateTests(unittest.TestCase):
     """PROJ-10837: pre-commit checked 2 files while verify.md demanded 5. Each test is one
     file the prose calls mandatory; the gate must refuse when it is missing or hollow."""
@@ -70,15 +170,21 @@ class PreCommitGateTests(unittest.TestCase):
     FULL = {
         "code-quality-review.md": "# Review\n\nScope: 66 files, 945 added lines reviewed\n",
         "plan.md": "# Plan\n\nsomething\n",
-        "run-telemetry.yaml": "ticket_id: X\nticket_type: crud-feature\nphases:\n  - {phase: plan}\n",
+        "run-telemetry.yaml": "ticket_id: X\n" + TELEMETRY,
         "implement-summary.md": "# Summary\n\nRegression: 1435 passed, 0 failed, 0 skipped (baseline 1432)\n",
         "test-evidence/TC-1/02_response.txt": "Expected: 429\nObserved: 429\n",
-        "ticket-context.yaml": "armed_gates: [G1]\n",
+        "ticket-context.yaml": "armed_gates: [G1]\nflow_gate: {decision: passthrough}\n",
         "legacy-contract.md": "# Contract\n",
+        **E2E_OK,
     }
+    # A neutral config, so a real _config/projects.yaml on this machine never steers a test.
+    DEFAULT_PROJECTS = "active: p\nprojects:\n  p: {}\n"
 
-    def run_gate(self, files, ticket_type="crud-feature", drop=(), gate="pre-commit"):
-        with tempfile.TemporaryDirectory() as d:
+    def run_gate(self, files, ticket_type="crud-feature", drop=(), gate="pre-commit", projects=None):
+        with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as cfg:
+            cfg_file = Path(cfg) / "projects.yaml"
+            cfg_file.write_text(projects or self.DEFAULT_PROJECTS, encoding="utf-8")
+            old_cfg, check_artifacts.PROJECTS_YAML = check_artifacts.PROJECTS_YAML, cfg_file
             for rel, text in files.items():
                 if rel in drop:
                     continue
@@ -93,6 +199,7 @@ class PreCommitGateTests(unittest.TestCase):
                     code = main()
             finally:
                 sys.argv = argv
+                check_artifacts.PROJECTS_YAML = old_cfg
             return code, out.getvalue()
 
     def test_full_set_passes(self):
@@ -100,14 +207,86 @@ class PreCommitGateTests(unittest.TestCase):
         self.assertEqual(code, 0, out)
 
     def test_failure_mode_without_id_key_is_hollow(self):
-        files = dict(self.FULL, **{"run-telemetry.yaml": "ticket_type: crud-feature\nphases:\n  - {phase: plan}\n"
-                                   "failure_modes_hit:\n  - {fm: FM-DLL-LOCKED, where: tests}\n"})
+        files = dict(self.FULL, **{"run-telemetry.yaml": TELEMETRY
+                                   + "failure_modes_hit:\n  - {fm: FM-DLL-LOCKED, where: tests}\n"})
         code, out = self.run_gate(files)
         self.assertEqual(code, 2, out)
         self.assertIn("without `id: FM-...`", out)
-        ok = dict(self.FULL, **{"run-telemetry.yaml": "ticket_type: crud-feature\nphases:\n  - {phase: plan}\n"
-                                "failure_modes_hit:\n  - {id: FM-DLL-LOCKED, where: tests}\n"})
+        ok = dict(self.FULL, **{"run-telemetry.yaml": TELEMETRY
+                                + "failure_modes_hit:\n  - {id: FM-DLL-LOCKED, where: tests}\n"})
         self.assertEqual(self.run_gate(ok)[0], 0)
+
+    def test_knowledge_misses_key_is_required(self):
+        files = dict(self.FULL, **{"run-telemetry.yaml": "ticket_type: crud-feature\nphases:\n  - {phase: plan}\n"})
+        code, out = self.run_gate(files)
+        self.assertEqual(code, 2, out)
+        self.assertIn("knowledge_misses missing", out)
+
+    def test_knowledge_miss_needs_known_verdict(self):
+        base = TELEMETRY.replace("knowledge_misses: []\n", "knowledge_misses:\n")
+        done = ", area: external, promoted: written knowledge_partner.md}\n"
+        bad = dict(self.FULL, **{"run-telemetry.yaml": base + "  - {fact: partner 4xx rule, docs_had_it: maybe" + done})
+        code, out = self.run_gate(bad)
+        self.assertEqual(code, 2, out)
+        self.assertIn("docs_had_it not in", out)
+        ok = dict(self.FULL, **{"run-telemetry.yaml": base + "  - {fact: partner 4xx rule, docs_had_it: 'no'" + done})
+        self.assertEqual(self.run_gate(ok)[0], 0)
+        bare_no = dict(self.FULL, **{"run-telemetry.yaml": base + "  - {fact: partner 4xx rule, docs_had_it: no" + done})
+        self.assertEqual(self.run_gate(bare_no)[0], 0)
+
+    def test_knowledge_miss_needs_known_area(self):
+        base = TELEMETRY.replace("knowledge_misses: []\n", "knowledge_misses:\n")
+        bad = dict(self.FULL, **{"run-telemetry.yaml": base + "  - {fact: x, docs_had_it: wrong, area: misc,"
+                                 " promoted: fixed knowledge_orders.md}\n"})
+        code, out = self.run_gate(bad)
+        self.assertEqual(code, 2, out)
+        self.assertIn("area not in", out)
+
+    def test_unpromoted_knowledge_miss_blocks(self):
+        """The old tail-phase promote never ran in 11 tickets because nothing was gated on it."""
+        base = TELEMETRY.replace("knowledge_misses: []\n", "knowledge_misses:\n")
+        entry = "  - {fact: x, docs_had_it: yes-not-found, area: business"
+        for promoted in ("}", ", promoted: ''}", ", promoted: written}", ", promoted: todo later}"):
+            files = dict(self.FULL, **{"run-telemetry.yaml": base + entry + promoted + "\n"})
+            code, out = self.run_gate(files)
+            self.assertEqual(code, 2, promoted + out)
+            self.assertIn("not promoted", out)
+        for promoted in ("indexed INDEX.md", "skipped: one-off particular"):
+            files = dict(self.FULL, **{"run-telemetry.yaml": base + entry + ", promoted: '" + promoted + "'}\n"})
+            self.assertEqual(self.run_gate(files)[0], 0, promoted)
+
+    def test_promoted_file_must_exist_in_docs_root(self):
+        """`promoted: written X` is a claim; inside a real docs root the file X must be there."""
+        from check_artifacts import telemetry_filled
+        with tempfile.TemporaryDirectory() as root:
+            docs = Path(root)
+            (docs / "INDEX.md").write_text("# index\n", encoding="utf-8")
+            (docs / "knowledge_partner.md").write_text("# partner\n", encoding="utf-8")
+            tel = docs / "tickets" / "X-1" / "run-telemetry.yaml"
+            tel.parent.mkdir(parents=True)
+            head = ("phases:\n  - {phase: plan}\nknowledge_checkpoints: [{id: K1}, {id: K3}, {id: K4}]\n"
+                    "knowledge_misses:\n  - {fact: x, docs_had_it: wrong, area: external, ")
+            tel.write_text(head + "promoted: fixed knowledge_partner.md}\n", encoding="utf-8")
+            self.assertTrue(telemetry_filled(tel)[0])
+            tel.write_text(head + "promoted: written knowledge_nowhere.md}\n", encoding="utf-8")
+            ok, why = telemetry_filled(tel)
+            self.assertFalse(ok)
+            self.assertIn("does not exist", why)
+
+    def test_knowledge_checkpoints_k1_k3_before_commit(self):
+        """Business gaps are fixed at chosen checkpoints, not at the end."""
+        only_k3 = dict(self.FULL, **{"run-telemetry.yaml": "ticket_type: crud-feature\nphases:\n  - {phase: plan}\n"
+                                     "knowledge_misses: []\nknowledge_checkpoints: [{id: K3}]\n"})
+        code, out = self.run_gate(only_k3)
+        self.assertEqual(code, 2, out)
+        self.assertIn("lacks K1", out)
+        code, out = self.run_gate(only_k3, ticket_type="refactor")
+        self.assertEqual(code, 0, out)  # refactor runs no analyze, so K1 is not owed
+        none = dict(self.FULL, **{"run-telemetry.yaml": "ticket_type: crud-feature\nphases:\n  - {phase: plan}\n"
+                                  "knowledge_misses: []\n"})
+        code, out = self.run_gate(none)
+        self.assertEqual(code, 2, out)
+        self.assertIn("lacks K1, K3", out)
 
     def test_missing_telemetry_blocks(self):
         code, out = self.run_gate(self.FULL, drop=("run-telemetry.yaml",))
@@ -132,16 +311,18 @@ class PreCommitGateTests(unittest.TestCase):
             self.assertEqual(code, 2, f"{line}\n{out}")
 
     def test_missing_test_evidence_blocks_crud_feature(self):
-        code, out = self.run_gate(self.FULL, drop=("test-evidence/TC-1/02_response.txt",))
+        drop = [k for k in self.FULL if k.endswith("02_response.txt")]  # TC-1 + the G-TC fixture flows
+        code, out = self.run_gate(self.FULL, drop=drop)
         self.assertEqual(code, 2, out)
+        self.assertIn("no flow folder with a 02_response.txt", out)
 
     def test_test_evidence_waived_for_refactor(self):
         code, out = self.run_gate(self.FULL, ticket_type="refactor", drop=("test-evidence/TC-1/02_response.txt",))
         self.assertEqual(code, 0, out)
 
     def test_api_test_skipped_in_telemetry_waives_evidence(self):
-        files = dict(self.FULL, **{"run-telemetry.yaml": "ticket_type: crud-feature\nphases:\n  - {phase: plan}\n"
-                                   "skipped_phases:\n  - {phase: api-test, reason: deploy first}\n"})
+        files = dict(self.FULL, **{"run-telemetry.yaml": TELEMETRY
+                                   + "skipped_phases:\n  - {phase: api-test, reason: deploy first}\n"})
         code, out = self.run_gate(files, drop=("test-evidence/TC-1/02_response.txt",))
         self.assertEqual(code, 0, out)
 
@@ -151,15 +332,377 @@ class PreCommitGateTests(unittest.TestCase):
         self.assertIn("legacy-contract.md", out)
 
     def test_no_armed_gates_no_contract_needed(self):
-        files = dict(self.FULL, **{"ticket-context.yaml": "armed_gates: []\n"})
+        files = dict(self.FULL, **{"ticket-context.yaml": "armed_gates: []\nflow_gate: {decision: passthrough}\n"})
         code, out = self.run_gate(files, drop=("legacy-contract.md",))
         self.assertEqual(code, 0, out)
 
     def test_done_gate_needs_telemetry_and_summary(self):
-        code, out = self.run_gate(self.FULL, gate="done")
+        done = dict(self.FULL, **E2E_DONE_OK)
+        code, out = self.run_gate(done, gate="done")
         self.assertEqual(code, 0, out)
-        code, out = self.run_gate(self.FULL, gate="done", drop=("implement-summary.md",))
+        code, out = self.run_gate(done, gate="done", drop=("implement-summary.md",))
         self.assertEqual(code, 2, out)
+
+    def test_done_needs_k4_checkpoint(self):
+        files = dict(self.FULL, **E2E_DONE_OK, **{
+            "run-telemetry.yaml": "ticket_type: crud-feature\nphases:\n  - {phase: plan}\n"
+                                  "knowledge_misses: []\nknowledge_checkpoints: [{id: K1}, {id: K3}]\n"})
+        code, out = self.run_gate(files, gate="done")
+        self.assertEqual(code, 2, out)
+        self.assertIn("lacks K4", out)
+
+    def test_no_ticket_push_waives_telemetry(self):
+        files = {"code-quality-review.md": "# Review\n\nScope: 3 files, 40 added lines reviewed\n"}
+        code, out = self.run_gate(files, gate="pre-push", ticket_type="no-ticket")
+        self.assertEqual(code, 0, out)
+        self.assertIn("waived   run-telemetry.yaml", out)
+
+
+class PreCommitFlowGateTests(unittest.TestCase):
+    """A project got its business flows in business_flows.yaml; 6c read only flow_index.yaml and saw none."""
+    run_gate = PreCommitGateTests.run_gate
+    DEFAULT_PROJECTS = PreCommitGateTests.DEFAULT_PROJECTS
+    FULL = PreCommitGateTests.FULL
+
+    def project_with_bf(self, docs: Path) -> str:
+        (docs / "flows").mkdir(parents=True)
+        (docs / "flows" / "flow_index.yaml").write_text(
+            "procedures: {}\nbusiness_flows_ref: flows/business_flows.yaml\n", encoding="utf-8")
+        (docs / "flows" / "business_flows.yaml").write_text("flows: {retention-x: {health: ok}}\n", encoding="utf-8")
+        return f"active: p\nprojects:\n  p:\n    paths: {{output_root: '{docs.as_posix()}'}}\n"
+
+    def ctx(self, flow_gate: str) -> dict:
+        return dict(self.FULL, **{"ticket-context.yaml": "armed_gates: [G1]\n" + flow_gate})
+
+    def test_missing_record_blocks(self):
+        code, out = self.run_gate(self.ctx(""))
+        self.assertEqual(code, 2, out)
+        self.assertIn("flow_gate.decision", out)
+
+    def test_waived_for_types_without_analyze(self):
+        code, out = self.run_gate(self.ctx(""), ticket_type="bugfix-small")
+        self.assertEqual(code, 0, out)
+        self.assertIn("no 6c flow gate", out)
+
+    def test_project_without_business_flows_needs_only_the_decision(self):
+        code, out = self.run_gate(self.ctx("flow_gate: {decision: not_available, business_flows: absent}\n"))
+        self.assertEqual(code, 0, out)
+
+    def test_record_must_name_the_business_flows_file(self):
+        with tempfile.TemporaryDirectory() as docs:
+            projects = self.project_with_bf(Path(docs))
+            for wrong in ("flow_gate: {decision: passthrough}",
+                          "flow_gate: {decision: passthrough, business_flows: flows/flow_index.yaml}"):
+                code, out = self.run_gate(self.ctx(wrong + "\n"), projects=projects)
+                self.assertEqual(code, 2, out)
+                self.assertIn("business_flows.yaml", out)
+            good = "flow_gate: {decision: passthrough, business_flows: flows/business_flows.yaml, touched_flows: [retention-x]}\n"
+            code, out = self.run_gate(self.ctx(good), projects=projects)
+            self.assertEqual(code, 0, out)
+            self.assertIn("1 flow(s) touched", out)
+            code, out = self.run_gate(self.ctx("flow_gate: {decision: skipped, skipped_reason: from_dps}\n"),
+                                      projects=projects)
+            self.assertEqual(code, 0, out)
+
+
+class E2EGateTests(unittest.TestCase):
+    """PROJ-11685: every AC 'proven' by a shortcut, the full flow never ran, one type had no case.
+    G-MATRIX + G-E2E were prose; these prove the machine check blocks, and blocks closed."""
+    run_gate = PreCommitGateTests.run_gate
+    DEFAULT_PROJECTS = PreCommitGateTests.DEFAULT_PROJECTS
+    RESULTS = "test-evidence/e2e/e2e-results.md"
+
+    def gate(self, files, gate="e2e", ticket_type="crud-feature"):
+        return self.run_gate(files, gate=gate, ticket_type=ticket_type)
+
+    def with_matrix_row(self, row: str) -> dict:
+        tc = TEST_CASES_OK.replace("| bulk |", row + "\n| bulk |", 1)
+        return dict(E2E_OK, **{"test-cases.md": tc})
+
+    def with_results(self, rows: str, base=E2E_OK) -> dict:
+        return dict(base, **{self.RESULTS: E2E_HEAD + rows})
+
+    def test_filled_set_passes_every_stage(self):
+        for g in ("e2e", "pre-push", "pr"):
+            code, out = self.gate(PreCommitGateTests.FULL, gate=g)
+            self.assertEqual(code, 0, g + out)
+        code, out = self.gate(E2E_OK)
+        self.assertIn("2 E2E case(s)", out)
+
+    def test_empty_matrix_cell_blocks(self):
+        code, out = self.gate(self.with_matrix_row("| express-2 | E2E-02 | TC-01 |  | TC-03 |"))
+        self.assertEqual(code, 2, out)
+        self.assertIn("express-2 × due date empty: empty", out)
+
+    def test_short_row_counts_as_empty(self):
+        code, out = self.gate(self.with_matrix_row("| express-2 | E2E-02 | TC-01 |"))
+        self.assertEqual(code, 2, out)
+        self.assertIn("old data: empty", out)
+
+    def test_cell_rules(self):
+        bad = {
+            "| x | E2E-01 | TBD | TC-02 | TC-03 |": "placeholder",
+            "| x | E2E-01 | out of scope: later | TC-02 | TC-03 |": "lacks '<reason> — <who decided>'",
+            "| x | E2E-01 | out of scope: <reason> — <who decided> | TC-02 | TC-03 |": "placeholder",
+            "| x | n/a: unchanged | TC-01 | TC-02 | TC-03 |": "n/a is not allowed in the E2E column",
+            "| x | TC-01 | TC-01 | TC-02 | TC-03 |": "names no E2E-.. case",
+            "| x | E2E-01 | covered | TC-02 | TC-03 |": "is no case id",
+            "| x | E2E-01 | TC-09 | TC-02 | TC-03 |": "no heading in the file: ['TC-09']",
+        }
+        for row, why in bad.items():
+            code, out = self.gate(self.with_matrix_row(row))
+            self.assertEqual(code, 2, row + out)
+            self.assertIn(why, out, row)
+
+    def test_missing_matrix_or_track_blocks(self):
+        no_matrix = TEST_CASES_OK.replace("## Variant matrix", "## Some table")
+        code, out = self.gate(dict(E2E_OK, **{"test-cases.md": no_matrix}))
+        self.assertEqual(code, 2, out)
+        self.assertIn("no '## Variant matrix'", out)
+        no_track = TEST_CASES_OK.replace("## E2E track", "## Flows")
+        code, out = self.gate(dict(E2E_OK, **{"test-cases.md": no_track}))
+        self.assertEqual(code, 2, out)
+        self.assertIn("no '## E2E track'", out)
+
+    def test_missing_results_file_blocks(self):
+        files = {k: v for k, v in E2E_OK.items() if k != self.RESULTS}
+        code, out = self.gate(files)
+        self.assertEqual(code, 2, out)
+        self.assertIn("MISSING  " + self.RESULTS, out)
+
+    def test_partial_row_blocks(self):
+        rows = E2E_LOCAL_OK.replace("| PASS | `e2e/E2E-02-local/` |",
+                                    "| PARTIAL — rule made through admin API | `e2e/E2E-02-local/` |")
+        code, out = self.gate(self.with_results(rows))
+        self.assertEqual(code, 2, out)
+        self.assertIn("E2E-02@local: PARTIAL", out)
+
+    def test_later_pass_clears_partial_but_later_partial_does_not(self):
+        partial = "| E2E-02 | express | local | API seed | PARTIAL — API instead of GUI | — |\n"
+        code, out = self.gate(self.with_results(partial + E2E_LOCAL_OK))
+        self.assertEqual(code, 0, out)
+        code, out = self.gate(self.with_results(E2E_LOCAL_OK + partial))
+        self.assertEqual(code, 2, out)
+
+    def test_fail_on_test_env_blocks_even_before_done(self):
+        fail = "| E2E-01 | standard | test | admin GUI → create form | FAIL | — |\n"
+        files = dict(PreCommitGateTests.FULL, **self.with_results(E2E_LOCAL_OK + fail))
+        code, out = self.gate(files, gate="pre-push")
+        self.assertEqual(code, 2, out)
+        self.assertIn("E2E-01@test: FAIL", out)
+        self.assertEqual(out.count("HOLLOW"), 1, out)
+
+    def test_skip_needs_reason_and_approver(self):
+        for result in ("SKIP", "SKIP — no GUI on local", "SKIP — no GUI — approved by <owner>, <date>"):
+            row = f"| E2E-02 | express | local | — | {result} | — |\n"
+            code, out = self.gate(self.with_results(E2E_LOCAL_OK.splitlines(True)[0] + row))
+            self.assertEqual(code, 2, result + out)
+            self.assertIn("SKIP without", out)
+        row = "| E2E-02 | express | local | — | SKIP — no GUI on local — approved by Sam, 2026-11-11 | — |\n"
+        code, out = self.gate(self.with_results(E2E_LOCAL_OK.splitlines(True)[0] + row))
+        self.assertEqual(code, 0, out)
+
+    def test_case_with_no_row_blocks(self):
+        code, out = self.gate(self.with_results(E2E_LOCAL_OK.splitlines(True)[0]))
+        self.assertEqual(code, 2, out)
+        self.assertIn("E2E-02@local: no row", out)
+
+    def test_pass_needs_entry_points_and_evidence_on_disk(self):
+        rows = E2E_LOCAL_OK.replace("| admin GUI → create form → DB | PASS | `e2e/E2E-02-local/` |",
+                                    "|  | PASS | `e2e/E2E-02-local/` |")
+        code, out = self.gate(self.with_results(rows))
+        self.assertEqual(code, 2, out)
+        self.assertIn("no entry points named", out)
+        rows = E2E_LOCAL_OK.replace("`e2e/E2E-02-local/`", "`e2e/E2E-02-nowhere/`")
+        code, out = self.gate(self.with_results(rows))
+        self.assertEqual(code, 2, out)
+        self.assertIn("not on disk", out)
+
+    def test_done_needs_the_test_rows(self):
+        code, out = self.gate(E2E_OK, gate="done")
+        self.assertEqual(code, 2, out)
+        self.assertIn("E2E-01@test: no row", out)
+
+    def test_waived_only_for_types_without_test_cases(self):
+        for t in ("bugfix-small", "bugfix-regression", "hotfix", "doc-only", "refactor", "migration-only",
+                  "spike", "no-ticket"):
+            code, out = self.gate({}, ticket_type=t)
+            self.assertEqual(code, 0, t + out)
+            self.assertIn("waived", out)
+        for t in ("crud-feature", "bugfix-investigated", "fe-only", "crud"):  # an unknown type waives nothing
+            code, out = self.gate({}, ticket_type=t)
+            self.assertEqual(code, 2, t + out)
+
+    def test_table_without_result_columns_blocks(self):
+        code, out = self.gate(dict(E2E_OK, **{self.RESULTS: "E2E-01 local PASS\nE2E-02 local PASS\n"}))
+        self.assertEqual(code, 2, out)
+        self.assertIn("no table with Case | Env | Result", out)
+
+
+class TCGateTests(unittest.TestCase):
+    """G-TC (Track B): every case in test-cases.md is run and recorded. PROJ-11685: [API] cases were
+    tied to no run, [GUI] cases ran nowhere, and TC-09 expected 400 while the run saw 422."""
+    run_gate = PreCommitGateTests.run_gate
+    DEFAULT_PROJECTS = PreCommitGateTests.DEFAULT_PROJECTS
+    RESULTS = "test-evidence/tc-results.md"
+
+    def gate(self, rows: str, gate="pre-commit", base=None, ticket_type="crud-feature"):
+        files = dict(base or PreCommitGateTests.FULL, **{self.RESULTS: TC_HEAD + rows})
+        return self.run_gate(files, gate=gate, ticket_type=ticket_type)
+
+    def test_full_rows_pass_every_stage(self):
+        for g in ("pre-commit", "pre-push", "pr"):
+            code, out = self.gate(TC_ROWS_OK, gate=g)
+            self.assertEqual(code, 0, g + out)
+            self.assertIn("3 TC(s) PASS", out)
+
+    def test_case_with_no_row_blocks(self):
+        code, out = self.gate(TC_ROWS_OK.splitlines(True)[0])
+        self.assertEqual(code, 2, out)
+        self.assertIn("TC-02: no row", out)
+        self.assertIn("TC-03: no row", out)
+
+    def test_missing_file_blocks(self):
+        files = {k: v for k, v in PreCommitGateTests.FULL.items() if k != self.RESULTS}
+        code, out = self.run_gate(files)
+        self.assertEqual(code, 2, out)
+        self.assertIn("MISSING  " + self.RESULTS, out)
+
+    def test_fail_partial_and_bare_skip_block(self):
+        for result, why in (("FAIL — expected 400, saw 422", "TC-02@local: FAIL"),
+                            ("PARTIAL — recalc of an existing record", "TC-02@local: PARTIAL"),
+                            ("SKIP — no GUI on local", "SKIP without")):
+            rows = TC_ROWS_OK.replace(f"| `tc02-empty/` | local | {DEMO} | PASS |",
+                                      f"| `tc02-empty/` | local | {DEMO} | {result} |")
+            code, out = self.gate(rows)
+            self.assertEqual(code, 2, result + out)
+            self.assertIn(why, out)
+
+    def test_approved_skip_passes(self):
+        rows = TC_ROWS_OK.replace(f"| `tc02-empty/` | local | {DEMO} | PASS |",
+                                  "| — | local | — | SKIP — screen not built yet — approved by Sam, 2026-11-11 |")
+        code, out = self.gate(rows)
+        self.assertEqual(code, 0, out)
+
+    def test_latest_row_per_env_decides(self):
+        fail = f"| TC-02 | API | `tc02-empty/` | local | {DEMO} | FAIL |\n"
+        code, out = self.gate(fail + TC_ROWS_OK)
+        self.assertEqual(code, 0, out)
+        code, out = self.gate(TC_ROWS_OK + fail)
+        self.assertEqual(code, 2, out)
+
+    def test_pass_needs_how_and_paths_on_disk(self):
+        code, out = self.gate(TC_ROWS_OK.replace("| `tc02-empty/` |", "|  |"))
+        self.assertEqual(code, 2, out)
+        self.assertIn("no 'How it ran'", out)
+        code, out = self.gate(TC_ROWS_OK.replace("`tc02-empty/`", "`tc02-nowhere/`"))
+        self.assertEqual(code, 2, out)
+        self.assertIn("`tc02-nowhere/` not on disk", out)
+
+    def test_e2e_and_removed_cases_are_not_required_here(self):
+        tc = TEST_CASES_OK + "\n## TC-04 — removed in v2\nMoved to the backlog ticket.\n"
+        base = dict(PreCommitGateTests.FULL, **{"test-cases.md": tc})
+        code, out = self.gate(TC_ROWS_OK, base=base)
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("E2E-01: no row", out)
+
+    def test_new_case_in_test_cases_needs_a_row(self):
+        tc = TEST_CASES_OK + "\n## TC-05 — GUI form\n**Tags:** [GUI]\n"
+        base = dict(PreCommitGateTests.FULL, **{"test-cases.md": tc})
+        code, out = self.gate(TC_ROWS_OK, base=base)
+        self.assertEqual(code, 2, out)
+        self.assertIn("TC-05: no row", out)
+
+    def test_table_without_how_or_env_column_blocks(self):
+        files = dict(PreCommitGateTests.FULL, **{self.RESULTS: "| TC | Result |\n|---|---|\n| TC-01 | PASS |\n"})
+        code, out = self.run_gate(files)
+        self.assertEqual(code, 2, out)
+        self.assertIn("no table with TC | How it ran | Env | Result", out)
+
+    def test_pass_without_commit_blocks_every_stage(self):
+        rows = TC_ROWS_OK.replace(f"| `tc02-empty/` | local | {DEMO} | PASS |", "| `tc02-empty/` | local |  | PASS |")
+        for g in ("pre-commit", "pr", "done"):
+            code, out = self.gate(rows, gate=g, base=dict(PreCommitGateTests.FULL, **E2E_DONE_OK))
+            self.assertEqual(code, 2, g + out)
+            self.assertIn("TC-02@local: PASS but no Commit", out)
+
+    def test_table_without_commit_column_blocks_a_pass(self):
+        old = ("| TC | Tag | How it ran | Env | Result |\n|---|---|---|---|---|\n"
+               "| TC-01 | API | `tc01-create/` | local | PASS |\n")
+        code, out = self.run_gate(dict(PreCommitGateTests.FULL, **{self.RESULTS: old}))
+        self.assertEqual(code, 2, out)
+        self.assertIn("TC-01@local: PASS but no Commit", out)
+
+    def test_no_code_reason_passes(self):
+        rows = TC_ROWS_OK.replace(f"| `tc02-empty/` | local | {DEMO} | PASS |",
+                                  "| `tc02-empty/` | local | n/a — SQL read on the local DB only | PASS |")
+        code, out = self.gate(rows)
+        self.assertEqual(code, 0, out)
+
+    def stale_files(self, change: str) -> tuple[dict, str]:
+        """A fresh repo, a row on its first commit, then one more commit of `change`."""
+        root = Path(tempfile.mkdtemp(prefix="tc-stale-"))
+        self.addCleanup(shutil.rmtree, root, True)
+        repo, sha = make_repo(root, "svc")
+        (repo / change).write_text("v2\n", encoding="utf-8")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-q", "-m", "v2")
+        rows = TC_ROWS_OK.replace(f"| `tc02-empty/` | local | {DEMO} | PASS |",
+                                  f"| `tc02-empty/` | local | `svc@{sha[:9]}` | PASS |")
+        state = STATE_DEMO + f"  svc: '{repo.as_posix()}'\n"
+        return dict(PreCommitGateTests.FULL, **{"ticket-state.yaml": state, self.RESULTS: TC_HEAD + rows}), sha
+
+    def test_code_commit_after_the_row_makes_it_stale(self):
+        files, sha = self.stale_files("app.cs")
+        for g in ("pre-commit", "pre-push", "pr"):
+            code, out = self.run_gate(files, gate=g)
+            self.assertEqual(code, 2, g + out)
+            self.assertIn(f"stale: 1 code commit(s) on svc HEAD after {sha[:9]}", out)
+
+    def test_doc_only_commit_after_the_row_is_not_stale(self):
+        files, _sha = self.stale_files("README.md")
+        code, out = self.run_gate(files)
+        self.assertEqual(code, 0, out)
+
+    def test_rerun_row_on_the_new_commit_clears_it(self):
+        files, _sha = self.stale_files("app.cs")
+        repo = Path(files["ticket-state.yaml"].split("svc: '")[1].split("'")[0])
+        head = _git(repo, "rev-parse", "HEAD")
+        rerun = f"| TC-02 | API | `tc02-empty/` | local | `svc@{head[:9]}` | PASS |\n"
+        files[self.RESULTS] += rerun
+        code, out = self.run_gate(files)
+        self.assertEqual(code, 0, out)
+
+    def test_ticket_branch_is_compared_not_head(self):
+        files, sha = self.stale_files("app.cs")
+        repo = Path(files["ticket-state.yaml"].split("svc: '")[1].split("'")[0])
+        _git(repo, "branch", "feat-x", sha)      # the ticket branch has no later commit
+        files["ticket-state.yaml"] += "branch: feat-x\n"
+        code, out = self.run_gate(files)
+        self.assertEqual(code, 0, out)
+
+    def test_unknown_repo_or_commit_blocks(self):
+        rows = TC_ROWS_OK.replace(f"| `tc02-empty/` | local | {DEMO} | PASS |",
+                                  "| `tc02-empty/` | local | `nowhere@abc1234` | PASS |")
+        code, out = self.gate(rows)
+        self.assertEqual(code, 2, out)
+        self.assertIn("repo 'nowhere' not found", out)
+        rows = TC_ROWS_OK.replace(f"| `tc02-empty/` | local | {DEMO} | PASS |",
+                                  "| `tc02-empty/` | local | `demo-repo@abc1234` | PASS |")
+        code, out = self.gate(rows)
+        self.assertEqual(code, 2, out)
+        self.assertIn("commit demo-repo@abc1234 not found", out)
+
+    def test_done_gate_needs_the_commit_but_skips_staleness(self):
+        files, _sha = self.stale_files("app.cs")
+        files = dict(files, **{k: v for k, v in E2E_DONE_OK.items() if k.startswith("test-evidence/e2e")})
+        code, out = self.run_gate(files, gate="done")
+        self.assertNotIn("stale:", out)
+
+    def test_waived_for_types_without_test_cases(self):
+        for t in ("bugfix-small", "hotfix", "refactor", "migration-only"):
+            code, out = self.run_gate({}, ticket_type=t)
+            self.assertIn(f"waived   {self.RESULTS}", out, t)
 
 
 if __name__ == "__main__":

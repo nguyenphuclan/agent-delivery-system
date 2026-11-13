@@ -102,8 +102,8 @@ strategies:
     when: "input includes --from-briefing=<path> flag OR keywords 'flow', 'trace cascade', 'reassignment', 'flagging', 'sync', 'connect flow A to flow B', 'what triggers X', 'why doesn't X fire'"
     default_for: []
     flow:
-      - "FT-1 SCOPE: Load dps-briefing.md from --from-briefing path (or extract flow name + in-scope repos from user input). Identify target flow(s), each flow's known triggers + expected effects, in-scope repos."
-      - "FT-2 ANCHOR: For each flow, confirm entry handlers (sync_entry + async_entry + invariant_owner) from {project_docs}/flows/flow_index.yaml + {project_docs}/code/domain_index.yaml. Verify each file:line still exists. Do NOT guess."
+      - "FT-1 SCOPE: Load dps-briefing.md from --from-briefing path (or extract flow name + in-scope repos from user input). Identify target flow(s), each flow's known triggers + expected effects, in-scope repos. Flow records come from the BUSINESS flows file: path = business_flows_ref: in {project_docs}/flows/flow_index.yaml (default flows/business_flows.yaml), match by flow id, aliases[] or indexes.by_keyword; also read flows/_concerns.yaml entries for those flows. The procedures: list in flow_index.yaml is how-to recipes, not flows - never trace from it. No business-flows file -> say so in findings and build the flow from the user input + code/domain_index."
+      - "FT-2 ANCHOR: For each flow, confirm entry handlers (sync_entry + async_entry + invariant_owner) from the business flows code_anchors + {project_docs}/code/domain_index.yaml. Anchors there are durable surfaces (repo + route / queue / table / workflow name): grep the surface in the named repo to find the handler file:line, then verify it. Do NOT guess."
       - "FT-3 TRACE: For each TRIGGER PATH (not per field), follow end-to-end from entry handler → cascade → final effect. Read 2-3 levels deep. Check whether each step is actually wired or silently drops the signal (silent-overwrite, conditional-publish, early-return are the typical gates)."
       - "FT-4 MAP: Build flow_map per trigger path showing trigger → handler → cascade → final effect. One trigger path per row."
       - "FT-5 GAP ANALYSIS: For each trigger path, ask: 'Does this trigger actually reach the flow's expected effect?' Classify: REACHES (OK) / SILENTLY-DROPS (GAP — there's a gate that swallows the signal) / PARTIAL (reaches some effects, not others) / WRONG-EFFECT (reaches a different effect than expected)."
@@ -117,11 +117,12 @@ strategies:
       "what does this field do?"
 
       Hypothesis discipline still applies: do not start by reading code. Start from the briefing's
-      flow context → find anchor handlers (flow_index + domain_index first) → THEN read code
+      flow context → find anchor handlers (business flows + domain_index first) → THEN read code
       to trace. Anchor first, code second.
 
       Never propose an option that conflicts with a confirmed invariant — re-check
-      flow_index.flows.<name>.invariants_respected and {project_docs}/domain/<Entity>.yaml.
+      business flows flows.<name>.invariants_respected + known_gates (by_design: true = work WITH it)
+      and {project_docs}/domain/<Entity>.yaml.
 
 # Default selection rules (top-down, first match wins)
 selection_rules:

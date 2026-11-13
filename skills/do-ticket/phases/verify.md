@@ -1,6 +1,6 @@
 # do-ticket — verify part
 
-Phase procedure for phases 14 `env-gate`, 15 `api-test`, 16 `commit`, 17 `pre-push`. The router is `../SKILL.md`: trigger, state files, the phase list, the
+Phase procedure for phases 14 `env-gate`, 15 `api-test`, 15.1 `e2e`, 16 `commit`, 17 `pre-push`. The router is `../SKILL.md`: trigger, state files, the phase list, the
 generic phase loop, gates and rules. Inputs and outputs of each phase are in `../phase-contracts.yaml`.
 A bare file name here (`ticket-types.md`, `run-telemetry-schema.md`, …) is a do-ticket companion file in
 `~/.claude/skills/do-ticket/`.
@@ -47,17 +47,93 @@ This is a required pre-commit gate, yet it used to conclude on the agent's word 
 into `{ticket_dir}/test-evidence/{flow}/`:
 
 - `01_request.txt` — method, URL, headers (token redacted), body
-- `02_response.txt` — HTTP status + full body, headed by two lines: `Expected: …` / `Observed: …`
-  so the verdict stays checkable later without re-running anything
+- `02_response.txt` — HTTP status + full body, headed by three lines: `Expected: …` / `Observed: …` /
+  `Entry: <the entry point used>` so the verdict stays checkable later without re-running anything
 - `03_db_verify.txt` — the verification query **and its row count**, whenever the flow persists data
 
 **A verification query returning 0 rows is N/A, never PASS.** Zero rows cannot tell "the write
 failed" apart from "the query is wrong" — and the second one reads as success, because no bad row
 was found. State the expected row count *before* running, then reconcile.
 
+### 15b — Track B: run every case in `test-cases.md`, and record it
+
+API flows alone are not enough: they never read `test-cases.md`, so `[API]` / `[DB]` cases were tied to
+nothing, and `[GUI]` cases ran nowhere — AC proof images (Track A) quietly took their place. Now:
+- `[API]` / `[DB]` → run each case through the live-API test skill (evidence folder as above, named `tc<NN>-…`).
+- `[GUI]` → run each case through your GUI test tool (browser automation, not the AC proof). Save the run folder.
+- `[UNIT]` / integration → name the test(s) that cover it (from `unit-tests-written.md`) and the green run.
+- `[DOC]` and other tags → the check the case describes, with its output on disk.
+- `[E2E]` → Phase 15.1; its row lives in `e2e/e2e-results.md`.
+
+Write `{ticket_dir}/test-evidence/tc-results.md`, one row per case (the latest row per case and env decides):
+
+| TC | Tag | How it ran | Env | Commit | Result |
+|---|---|---|---|---|---|
+| TC-08 | API | `tc08-create/` (gateway 5002, admin token) | local | `acme-api@0ac8503` | PASS |
+| TC-04 | UNIT | `WindowConfigTests.CalculateWindowStart_…` (api run, 23 passed) | local | `acme-api@0ac8503` | PASS |
+
+Results: `PASS` · `FAIL` (Observed ≠ Expected, even by one status code — fix the code or fix the case with the
+owner, never re-word the result) · `PARTIAL — <shortcut>` (same rule as 15.1: API instead of GUI, recalc
+instead of create, existing data instead of new) · `SKIP — <reason> — approved by <owner>, <date>`. A backticked
+path in "How it ran" must exist under `test-evidence/`. An AC image is never a "How it ran".
+
+**Commit** = the code the row ran on: `<repo>@<sha>` (HEAD of each repo under test, at least 7 hex chars; list
+every repo the case touched). No code ran (a pure SQL read, a doc check) → `n/a — <reason>`. A PASS with no
+Commit blocks. At `pre-commit`, `pre-push` and `pr` the gate finds the repo (ticket-state `worktree_paths`, else
+`<repos_root>/<repo>`) and marks the row **stale** when a code commit (not `*.md`) follows that sha on the
+ticket branch (else HEAD): run the case again and add a new row. It sees commits only, so after an
+uncommitted edit run Track B again before `commit`. (PROJ-11685: 9 rule changes were committed after the
+Track B run and the old PASS rows still counted.)
+
+**Gate G-TC (SKILL.md phase list)** blocks `commit` (16) until every case has a row and none is FAIL, PARTIAL,
+stale or an unapproved SKIP. Machine check: `check_artifacts.py {ticket_dir} pre-commit` (also `pre-push`, `pr`, `done`).
+
+## Phase 15.1 — `e2e` — the full flow, through the real entry points
+
+Runs the `## E2E track` of `test-cases.md`, case by case, on the local stack (env-gate confirmed). Runs for
+every type whose list has `test-cases`. PROJ-11685 had 0 E2E cases: each AC was proven by a shortcut
+(rule made through the admin API, an EXISTING record recalculated), each was recorded PASS, and the full flow
+— configure in the GUI → create a record → read the stored result — never ran on any environment.
+
+**Run.** Follow each case's entry points in order: GUI steps through your GUI test tool, API create through
+the live-API test skill, DB checks read-only. Make the data the case needs through its own entry points; never seed it.
+
+**Record** every run in `{ticket_dir}/test-evidence/e2e/e2e-results.md`, one row per case per env:
+
+| Case | Type | Env | Entry points used | Result | Evidence |
+|---|---|---|---|---|---|
+| E2E-01 | standard | local | admin GUI → create form → DB | PASS | `e2e/E2E-01-local/` |
+
+**Result values:**
+- `PASS` — every entry point named in the case was used, and the check matched.
+- `PARTIAL — <shortcut>` — the check matched, but a shortcut was used: API instead of GUI, recalc instead of
+  create, an existing record instead of a new one, a rule that matches no record. **PARTIAL is never PASS**, even
+  when each shortcut looks valid for its own AC.
+- `FAIL` — the check did not match → FM-SILENT-API-BUG → back to `implement`.
+- `SKIP — <reason> — approved by <owner>, <date>` — only with the owner's words. An entry the case marks
+  `Entry not possible` still needs this approval.
+
+**On TEST (after deploy).** The same cases run again on TEST, with the records approved at `plan`
+(`ticket-context.test_env_writes`). Add rows with `Env = test`, then remove the records as the plan says.
+No approval on file → ask now, once; a no → `SKIP` rows that need the owner's approved reason.
+
+**Gate G-E2E** (SKILL.md phase list) is checked from this file plus the matrix in `test-cases.md`. Every
+in-scope E2E case needs a `PASS` or an approved `SKIP` row for `local` before `pr-ready` (21), and for `test`
+too before `done` (23). An AC proof, if your team keeps one, may reuse an E2E run as its image.
+Machine check: run `python _shared/tools/check_artifacts.py {ticket_dir} e2e --type <ticket_type>` when 15.1
+ends (exit 2 blocks). The same check also runs inside the `pre-commit`, `pre-push`, `pr` and `done` gates; it
+is waived only for types with no `test-cases`.
+
 ## Phase 16 — `commit`
 
-Runs after phase 15 (`api-test`). Two sub-steps in order: 16a → 16b.
+Runs after phase 15 (`api-test`). Sub-steps in order: 16-0 → pre-check → 16a → 16b.
+
+**Step 16-0 — knowledge checkpoint K3 (write what build and verify taught into the docs).** Follow
+`../promote-knowledge.md`. Look back to the last checkpoint: code reads in `implement`, failed live runs in
+`api-test`, owner answers. Complete `knowledge_misses[]`, sort any open questions, then for each entry
+write, fix or index the doc and set `promoted:`. No owner approval first (AI-first); the writes are listed
+in the Phase 23 summary. Skip only for `doc-only`. The pre-check below blocks while an entry has no
+`promoted` result, or `knowledge_checkpoints[]` lacks K3 (and K1 for types that run `analyze`).
 
 **HARD PRE-CHECK — run the artifact gate (do NOT skip):**
 
@@ -66,7 +142,8 @@ python _shared/tools/check_artifacts.py {ticket_dir} pre-commit --type <ticket_t
 ```
 Exit 2 = BLOCKED; it names each missing or hollow file (`code-quality-review.md`, `plan.md`,
 `run-telemetry.yaml`, the Phase 12 `Regression:` line in `implement-summary.md`, `test-evidence`, and
-`legacy-contract.md` while gates are armed — minus what the type skips). A PASS means the record exists,
+`legacy-contract.md` while gates are armed, the 6c `flow_gate` record, the knowledge checkpoints, and the
+test gates G-MATRIX / G-E2E / G-TC — minus what the type skips). A PASS means the record exists,
 not that it is right — so still do the `run-telemetry.yaml` read below.
 
 **`run-telemetry.yaml` must exist and hold the required minimum.** Before the commit prompt, open
@@ -74,8 +151,10 @@ not that it is right — so still do the `run-telemetry.yaml` read below.
 listed above and check it exists, is non-empty, and measured something):
 - it parses as YAML;
 - it holds the **required minimum** subset defined in `run-telemetry-schema.md`: `ticket_id`, `ticket_type`,
-  `schema_version`, `started_at`, `phases[]` (non-empty — one entry per phase run so far), and the three lists
-  `failure_modes_hit` / `gates_triggered` / `unknown_failures` — written **explicitly**, `[]` included;
+  `schema_version`, `started_at`, `phases[]` (non-empty — one entry per phase run so far), and the four lists
+  `failure_modes_hit` / `gates_triggered` / `unknown_failures` / `knowledge_misses` — written **explicitly**,
+  `[]` included. Before writing `knowledge_misses`, walk `owner_answers` and the run's plan changes: each one
+  that gave a system fact is an entry, with `docs_had_it` set by a grep of `{project_docs}`;
 - it describes THIS run (the ticket id and the phases match what happened), not a copy from another ticket.
 
 Any check fails → **write or fix it now from the run so far**, before committing. Pass = all three hold.

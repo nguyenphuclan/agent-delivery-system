@@ -46,6 +46,11 @@ Skipped for `refactor`, `hotfix`, `doc-only`, `migration-only`, `spike`.
 Exit 2 = `plan.md` or `implement-summary.md` (the two files the description is built from) is missing or
 empty — produce it first. If the tool cannot run, open both by hand and check they exist and describe this change.
 
+**G-E2E first (SKILL.md phase list).** The same `pr` gate checks it: every in-scope E2E case has a `local` row
+that is `PASS` or an owner-approved `SKIP` in `test-evidence/e2e/e2e-results.md`, and the variant matrix in
+`test-cases.md` has no empty cell. A `PARTIAL` row blocks (exit 2). The PR description lists each E2E case
+with its result and the entry points used. Prose here is not the gate.
+
 Show generated PR description → wait for explicit user `y/n` before `gh pr create` / `gh pr edit`.
 
 > **Windows note:** if `gh` not in PATH, fall back: `powershell -Command "& 'C:\Program Files\GitHub CLI\gh.exe' pr create ..."`.
@@ -71,6 +76,22 @@ Each review round is a session boundary (S3 in the router § Sessions): the next
   `implement-summary.md` (carries the Phase 12 `Regression:` line), and every other output the type's phases
   declare in `phase-contracts.yaml`. Something missing or hollow → fix it first; do not move the status on a
   failed check.
+- **G-E2E on TEST (before `done`, and before any test comment on the ticket).** Once the change is deployed to
+  TEST, run Phase 15.1 there (`phases/verify.md`) with the records the owner approved at `plan`. Every in-scope
+  E2E case needs a `test` row that is `PASS` or an owner-approved `SKIP` (e.g. "not deployed in this sprint"),
+  and the matrix has no empty cell. `PARTIAL` blocks. The summary lists each E2E case with its local and TEST
+  result. PROJ-11685: a TEST rule was made to match no record, so the rule-driven result was never seen on TEST.
+  The `done` gate above checks this: it blocks until every E2E case has a `local` AND a `test` row that is
+  PASS or an approved SKIP (the latest row per case and env decides; a later PARTIAL undoes an earlier PASS).
+- **Knowledge checkpoint K4 (catch-up):** misses found after commit — CI, review, QC — are logged to
+  `knowledge_misses[]` like any other and promoted now (`promote-knowledge.md`). The `done` gate blocks on
+  an unpromoted entry or a missing K4 line. The summary then prints one block:
+  `Docs updated: N written · N fixed · N indexed · N skipped`, each with its file. This replaces the old
+  approval table — the owner reads it after, and reverts by `git diff` in the docs folder if wrong.
+- **Owner handoff when the owner is new to the domain:** do not hand over "read the diff". Give ONE list in
+  three parts: **proven** (with the command or test) · **assumed about envs outside this machine** (each
+  with a check to run on TEST) · **needs someone else** (name who). Add behaviour checks the owner can
+  run, not code to read. PROJ-10837: every risk was found, but spread over 4 files.
 - **Cost (optional, no model call):** `python _shared/tools/ticket_cost.py <TICKET_ID>` reads the Claude Code
   transcripts on disk (default `~/.claude/projects`) and prints $ per part and main session vs sub-agent.
   Put the total in the summary below. Skip it when no transcripts are on disk.

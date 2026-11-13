@@ -182,6 +182,17 @@ For each service, `effective_port = service.main_port + offset`. Used everywhere
 `static_set = []` and move on — **do not ask**. The user has given a standing
 answer, and re-asking every ticket is noise.
 
+**Exception — `ticket_type: fe-only`. Decide, never ask:**
+- Main FE checkout (`${project.paths.repos_root}/<FE repo>`) is **free** → make **no** worktree at all.
+  The ticket works in the main FE checkout, on its own branch cut from `origin/<main>`.
+- Main FE checkout is **busy** with other FE work → create the FE worktree only:
+  `static_set = ${project.worktree.static_worktrees}`, no BE worktrees.
+- **Busy** = `git status --porcelain` shows source changes, OR the branch is not the default branch
+  and its PR is not merged (`gh pr list --head <branch> --state merged` is empty).
+  PRs are often squash-merged, so "commits ahead of origin/<main>" alone does not prove the work is open.
+- In short: an FE-only ticket needs no worktree while the main FE checkout is free; it gets an FE
+  worktree only when the main checkout is busy with other FE work.
+
 Only when that flag is absent or `false`, and `${project.worktree.static_worktrees}`
 is non-empty, ask via AskUserQuestion — never clone FE by default. Most BE-only
 tickets don't need a FE worktree, and a needless one drags in the `node_modules`
@@ -634,7 +645,7 @@ Uncommitted changes in a worktree → `git worktree remove` fails. Surface to us
 
 - Never modify files in MAIN paths (`${repos_root}/…`). Only inside `${WT_ROOT}/…`.
 - Committed `appsettings.json` is never touched — only `.Development*.json`.
-- **FE / static worktrees are opt-in only.** Ask the user first (Phase 2a) unless `always_be_only: true` answers it; default to BE-only.
+- **FE / static worktrees are opt-in only.** Ask the user first (Phase 2a) unless `always_be_only: true` answers it; default to BE-only. Only exception: an fe-only ticket follows the Phase 2a fe-only rule, with no question.
 - **Never base a worktree on `HEAD`.** Fetch, then detach at `origin/${project.base_branch}` (or resume the ticket's own branch), and verify `rev-list --count origin/<base>..HEAD` = 0 (Phase 2b). Never clone FE — and therefore never create a `node_modules` junction — without explicit confirmation.
 - **Never recursively delete a junction/symlink** (`Remove-Item -Recurse`, `rm -rf`). A `node_modules` junction points at the MAIN repo's real modules; recursing through it wipes the source. Always unlink link-only via `cmd /c rmdir <junction>` (no `/s`), then verify the target survived (Phase 9a). If unsure it's safe, leave the junction and tell the user.
 - Shared-lib worktree is ALWAYS created. All N service worktrees ALWAYS created. No "minimal" mode.

@@ -35,7 +35,8 @@ Some upstream processes produce **spec-grade input**: requirements that already 
 - `{project_docs}/_quickref.yaml` — entity index summary
 - `{project_docs}/domain/<Entity>.yaml` — entity fields, states, business rules
 - `{project_docs}/domain/_glossary.yaml` — terminology, overloaded terms
-- `{project_docs}/flows/flow_index.yaml` + `{project_docs}/flows/*.md` — existing user flows
+- Business flows — the file named by `business_flows_ref:` in `{project_docs}/flows/flow_index.yaml` (default: `flows/business_flows.yaml`) + `flows/_concerns.yaml` — domain flows with effects and known gates (edge-case source). Absent → say so, go on
+- `{project_docs}/flows/flow_index.yaml` `procedures:` + `flows/flow_*.md` — how-to recipes (deploy, live test), not business flows
 - `{project_docs}/concepts/*.md` — business concept docs (overloaded terms, subtypes, neighbors, see_also)
 - `{project_docs}/lifecycle/*.md` — state machines, cascade rules, valid transitions
 - `{project_docs}/incidents/incidents.yaml` (tier-1 entries only) — "what edge cases have bitten us here"
@@ -67,7 +68,7 @@ Some upstream processes produce **spec-grade input**: requirements that already 
 
 ### Conditionally read (based on requirements content)
 - If requirements mention an **entity name** → read `{project_docs}/domain/<Entity>.yaml` (one file per entity)
-- If requirements mention a **flow keyword** (e.g. "reassignment", "flagging", "sync") → read matching entry from `{project_docs}/flows/flow_index.yaml` + the flow's detail .md
+- If requirements mention a **flow keyword** (e.g. "reassignment", "flagging", "sync") → read the matching business flow (by `indexes.by_keyword`, flow id or `aliases`) from the business-flows file above; each `known_gates` entry and open `_concerns` entry is an edge case to write down
 - If requirements use **vague parity language** ("similar to", "same as", "consistent with X") → read the entity shard for X
 - If requirements touch a **lifecycle** (state transitions, status changes) → read `{project_docs}/lifecycle/*.md` for the relevant entity
 

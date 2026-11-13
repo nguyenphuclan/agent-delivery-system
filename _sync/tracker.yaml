@@ -29,8 +29,22 @@ skills:
     source_files:
       - skills/scan-init/SKILL.md
       - skills/scan-init/surface-layers.md
-    last_synced_commit: b76f7fd
-    last_synced_at: 2026-10-27
+    last_synced_commit: e42fff8
+    last_synced_at: 2026-11-13
+    sync_2026_11_13:
+      synced: >
+        Business flows split: `scan-init flows` now owns flows/business_flows.yaml; flow_index.yaml
+        keeps the procedures and only a `business_flows_ref:` pointer. FL-1/FL-7 use the _index.yaml key
+        `business_flows`; FL-8 gates on check_flow_registries.py (done only on exit 0); schema header +
+        durable-anchor note; concern locations. New 'two honesty rules' (say which repos you searched;
+        count before you write a count), repo names removed.
+      also_fixed: >
+        Pre-existing jargon on the lines touched: two real flow names in the command and freshness
+        tables, real queue-name prefixes and one real queue name in FL discovery.
+      known_leaks_left: >
+        Not in this delta, so not touched: the business_flows.yaml schema example block and
+        surface-layers.md still carry real domain flow, queue and class names, and domain-problem-solver
+        SKILL.md has one real queue name in an example. Needs its own scrub pass.
     sync_2026_10_27:
       synced: >
         The rule "never conclude no consumer / no publisher from a SOURCE-ONLY scan" (base-class
@@ -50,8 +64,12 @@ skills:
       - _shared/measurement-integrity-protocol.md
       - _shared/check-scope.py
       - _shared/comment-protocol.md
-    last_synced_commit: b76f7fd
-    last_synced_at: 2026-10-27
+    last_synced_commit: e42fff8
+    last_synced_at: 2026-11-13
+    sync_2026_11_13:
+      synced: >
+        agent-docs-layout flows/ line (business_flows.yaml + _concerns.yaml next to the procedures);
+        measurement-integrity anti-pattern 'a gate that cannot pass because of step ORDER'.
     sync_2026_10_27:
       synced: >
         measurement-integrity I3 (a negative result needs a control that can say yes; name the surface)
@@ -83,8 +101,28 @@ skills:
       - skills/do-ticket/blast-radius.md
       - skills/do-ticket/legacy-contract.md
       - skills/do-ticket/triage-scoring.md
-    last_synced_commit: b76f7fd
-    last_synced_at: 2026-10-27
+    last_synced_commit: e42fff8
+    last_synced_at: 2026-11-13
+    sync_2026_11_13:
+      synced: >
+        Business flows in 6c (which file, FG-1..FG-10 record, skip by type) + contracts, schema, router
+        text. Knowledge checkpoints K1/K2/K3/STOP/K4, telemetry knowledge_misses +
+        knowledge_checkpoints, schema section 8 docs fitness, promote-knowledge.md rewritten (step 16-0,
+        gated, AI-first). Test gates: G-MATRIX (the test-cases.md shape is written inline in
+        phases/design.md, because the test-case skill is not mirrored), Phase 15.1 e2e + G-E2E, 15b
+        Track B + G-TC with the Commit / stale rule, plan-time approval for TEST writes. ship.md: G-E2E
+        at pr and done, K4, owner handoff list. start.md fe-only rule. blast-radius 'who goes over a new
+        restriction' row. Five new Known Gotchas, sanitized. ticket-types: e2e added, promote-knowledge
+        moved into commit.
+      already_public: >
+        FM-REVIEW-LOOP-EXHAUSTED and the FM-TESTDB-STALE-OR-SHARED severity fix.
+      skipped: >
+        interaction-classification.md `durable` split (file not mirrored; the question sort lives in
+        promote-knowledge.md); the AI-first table row 'not for a gap' (table not mirrored; same rule is
+        in promote-knowledge.md); the 15.2 ac-proof and 15.5 spec-sync lines (not mirrored); the Phase
+        23 closing step + `closed` gate (it runs doc-manager CLEAN-WORKTREES, never mirrored; public
+        keeps 'Worktree cleanup if applicable'); the unattended-run note on the TEST approval; the owner
+        quote in G-MATRIX.
     sync_2026_10_27:
       synced: >
         Router split: SKILL.md is now a router +
@@ -158,8 +196,17 @@ skills:
       - skills/push-code/parse-new-coverage.py
       - skills/push-code/test-parse-sonar-issues.py
       - skills/push-code/sonar-local.ps1
-    last_synced_commit: b76f7fd
-    last_synced_at: 2026-10-27
+    last_synced_commit: e42fff8
+    last_synced_at: 2026-11-13
+    sync_2026_11_13:
+      synced: >
+        No-ticket push runs check_artifacts.py --type no-ticket; sonar-local-gate lesson on a one-line
+        edit in a legacy S3776 method.
+      already_public: >
+        G-REVIEW-MISSING and FM-STALE-BASE in failure-modes.yaml.
+      skipped: >
+        The hotfix-branch exception to 'push only through push-code' (it routes to hotfix-deploy, which
+        is not mirrored, and quotes the owner).
     sync_2026_10_27:
       synced: >
         gh account check; fetch-first + already-merged check; lines vs statements+conditions; poisoned
@@ -185,8 +232,12 @@ skills:
   worktree-setup:
     source_files:
       - skills/worktree-setup/SKILL.md
-    last_synced_commit: b76f7fd
-    last_synced_at: 2026-10-27
+    last_synced_commit: e42fff8
+    last_synced_at: 2026-11-13
+    sync_2026_11_13:
+      synced: >
+        Phase 2a fe-only exception (free main FE checkout = no worktree; busy = FE worktree only) and
+        the matching rule line. Owner quote and incident id dropped.
     sync_2026_10_27:
       synced: >
         never branch from HEAD (fetch, verify count = 0); no meta file = not a port claimant;
@@ -202,8 +253,12 @@ skills:
   enrich-requirements:
     source_files:
       - skills/enrich-requirements/SKILL.md
-    last_synced_commit: b76f7fd
-    last_synced_at: 2026-10-27
+    last_synced_commit: e42fff8
+    last_synced_at: 2026-11-13
+    sync_2026_11_13:
+      synced: >
+        Reads the business-flows file (via business_flows_ref) + _concerns as an edge-case source;
+        procedures named as recipes, not flows.
     sync_2026_10_27:
       synced: >
         AC minimality (one rule = one AC; guardrails are not ACs) + plain-language register (word list
@@ -211,8 +266,16 @@ skills:
 
   promote-observations:
     source_file: skills/promote-observations/SKILL.md
-    last_synced_commit: b76f7fd
-    last_synced_at: 2026-10-27
+    last_synced_commit: e42fff8
+    last_synced_at: 2026-11-13
+    sync_2026_11_13:
+      synced: >
+        Ticket-tail mode is manual only (do-ticket promotes at step 16-0 now); STEP 5 drain must match
+        the exact approved lines, with a backup and a count check.
+      known_issue: >
+        Its 'Spec for ticket-tail mode: do-ticket/promote-knowledge.md' line now points at a file whose
+        ticket-tail sections (Detection rules, User gate, Ticket-folder log, Failure modes) the a49db6e
+        rewrite removed. Same in private. Fix in private first, then sync.
     sync_2026_10_27:
       synced: >
         ticket-tail mode (detect -> filter -> route -> dedupe, MIGRATE for domain-problem-solver, write
@@ -227,8 +290,12 @@ skills:
       - skills/domain-problem-solver/investigation-findings-schema.md
       - skills/domain-problem-solver/investigation-telemetry-schema.md
       - skills/domain-problem-solver/strategies.yaml
-    last_synced_commit: b76f7fd
-    last_synced_at: 2026-10-27
+    last_synced_commit: e42fff8
+    last_synced_at: 2026-11-13
+    sync_2026_11_13:
+      synced: >
+        flow-trace FT-1/FT-2, the findings schema and two failure-mode rows read the business-flows file
+        (via business_flows_ref) + _concerns, never the procedures list.
     sync_2026_10_27:
       synced: >
         artifacts in English, chat reply in the user's language.
@@ -237,8 +304,11 @@ skills:
     source_files:
       - skills/ticket-explain/SKILL.md
       - skills/ticket-explain/share-template.md
-    last_synced_commit: b76f7fd
-    last_synced_at: 2026-10-27
+    last_synced_commit: e42fff8
+    last_synced_at: 2026-11-13
+    sync_2026_11_13:
+      synced: >
+        Business flows are found through business_flows_ref and used as plain-language material.
     sync_2026_10_27:
       synced: >
         FIRST sync of SKILL.md + share-template.md. Worked example rewritten as a fictional ticket.
@@ -249,8 +319,15 @@ skills:
       - skills/spike/phase-contracts.yaml
       - skills/spike/evidence-protocol.md
       - skills/spike/failure-modes.yaml
-    last_synced_commit: b76f7fd
-    last_synced_at: 2026-10-27
+    last_synced_commit: e42fff8
+    last_synced_at: 2026-11-13
+    sync_2026_11_13:
+      synced: >
+        Hard rule 12 (the spike deletes its own build output), build-outputs.txt artifact, done
+        cleanup_step + ordering invariant.
+      changed_vs_private: >
+        The cleanup is written as manual steps; private calls a doc-manager script, which is not
+        mirrored.
     sync_2026_10_27:
       synced: >
         FIRST sync of all 4 files. Partner names made fictional; the spec-publishing phase removed;
@@ -269,8 +346,26 @@ skills:
       - _shared/tools/ticket_cost.py
       - _shared/tools/test_ticket_cost.py
       - _shared/tools/check_worktree.py
-    last_synced_commit: b76f7fd
-    last_synced_at: 2026-10-27
+    last_synced_commit: e42fff8
+    last_synced_at: 2026-11-13
+    sync_2026_11_13:
+      synced: >
+        check_flow_registries.py business-flow audit (business_flows_path, audit_business_flows) and the
+        new test_check_flow_registries.py (verbatim). check_artifacts.py: flow-gate record,
+        knowledge_misses + checkpoints K1/K3/K4, G-MATRIX / G-E2E / G-TC parsers with the stale-commit
+        check, the `e2e` gate, the `no-ticket` type. shared_store.py delta was already public (it was
+        ported from here).
+      changed_vs_private: >
+        Config read accepts both projects.yaml shapes and `output_dir`; the business-flows store is also
+        found from the ticket dir; messages point to do-ticket phases/design.md instead of the
+        non-mirrored test-case skill; bugfix-regression kept; test fixtures neutral and run_gate pins a
+        neutral projects.yaml.
+      skipped: >
+        The `closed` gate and worktree_cleaned (they run doc-manager CLEAN-WORKTREES, never mirrored);
+        the ac-proof and spec-handoff entries (never public).
+      tests: >
+        From the public copy: test_check_artifacts 67 OK, test_check_flow_registries 8 OK,
+        test_shared_store / test_ticket_cost / test_ticket_fingerprints OK.
     sync_2026_10_27:
       synced: >
         First sync. All tests pass from the public copy. Wired into do-ticket phases, push-code
@@ -291,10 +386,14 @@ skills:
 never_mirrored:
   game_and_personal_project_skills:
     skills: [phat-dat-dev, ong-trum-dev, loom-dev, crossroads-dev, earths-reach-dev,
-             sprout-dev, sprout-scan, card-art, "zuno-*"]
+             sprout-dev, sprout-scan, card-art, rip-and-rent-dev, dau-bep-dev,
+             can-tui-dev, mach-dev, game-critic, last-card-dev, local-image-gen,
+             "zuno-*"]
     reason: >
       Hobby/personal-project skills, not reusable delivery methodology. Decided 2026-07-26.
       Don't even offer a sanitize pass — commit to the private repo and stop.
+      2026-11-13: game-critic, last-card-dev and local-image-gen added, same class
+      (game and personal-project skills).
 
   spec-push:
     reason: >
